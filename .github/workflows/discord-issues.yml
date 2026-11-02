@@ -1,6 +1,7 @@
 name: GitHub Issues to Discord Forum
 
 on:
+  workflow_dispatch:
   issues:
     types:
       - opened
@@ -30,14 +31,36 @@ permissions:
   issues: write
 
 concurrency:
-  group: discord-issue-${{ github.repository }}-${{ github.event.issue.number }}
+  group: discord-issue-${{ github.repository }}-${{ github.event.issue.number || 'manual-sync' }}
   cancel-in-progress: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Sync issue with Discord forum
+      - name: Sync all issues with Discord forum (manual run)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_FORUM_CHANNEL_ID: ${{ secrets.DISCORD_FORUM_CHANNEL_ID }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GITHUB_REPOSITORY/issues?state=all&per_page=100" \
+            | jq -s 'add | .[] | select(has("pull_request") | not)' -c \
+            | while IFS= read -r issue; do
+                number=$(printf '%s' "$issue" | jq -r '.number')
+                printf 'Syncing issue #%s\\n' "$number"
+                event_file=$(mktemp)
+                printf '%s' "$issue" | jq -c '{action:"sync", issue:.}' > "$event_file"
+                GITHUB_EVENT_PATH="$event_file" GITHUB_EVENT_NAME=issues node .github/scripts/discord-issues.mjs
+                rm -f "$event_file"
+              done
+
+      - name: Sync issue event with Discord forum
+        if: github.event_name != 'workflow_dispatch'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
