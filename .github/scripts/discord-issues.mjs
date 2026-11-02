@@ -9,7 +9,7 @@ const isCommentEvent = process.env.GITHUB_EVENT_NAME === "issue_comment";
 const githubToken = process.env.GITHUB_TOKEN;
 const discordToken = process.env.DISCORD_BOT_TOKEN;
 const forumId = process.env.DISCORD_FORUM_CHANNEL_ID;
-const markerPattern = /<!-- discord-forum-thread:(\\d+) starter:(\\d+) -->/;
+const markerPattern = /<!-- discord-forum-thread:(\d+) starter:(\d+) -->/;
 
 if (!issue || issue.pull_request) {
   console.log("Not an issue event; skipping.");
@@ -100,7 +100,7 @@ async function saveMapping(threadId, starterId) {
   const marker = `<!-- discord-forum-thread:${threadId} starter:${starterId} -->`;
   await request(`${api}/issues/${issueNumber}/comments`, {
     method: "POST",
-    body: { body: `Discord forum thread linked: https://discord.com/channels/@me/${threadId}\n\n${marker}` }
+    body: { body: `Discord forum thread ID: ${threadId}\n\n${marker}` }
   });
 }
 
@@ -170,6 +170,9 @@ if (action === "closed") {
   await discord(`/channels/${mapping.threadId}`, { method: "PATCH", body: { archived: true, locked: false } });
 } else if (action === "reopened") {
   await discord(`/channels/${mapping.threadId}`, { method: "PATCH", body: { archived: false, locked: false } });
+}
+if (action === "edited") {
+  await discord(`/channels/${mapping.threadId}`, { method: "PATCH", body: { name: `#${issueNumber} · ${clean(issue.title).slice(0, 85)}`.slice(0, 100) } });
 }
 
 if (action !== "opened") {
