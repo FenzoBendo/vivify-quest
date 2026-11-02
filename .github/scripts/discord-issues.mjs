@@ -86,17 +86,43 @@ function issueContent() {
 }
 
 async function findMapping() {
+  const mappings = [];
   let page = 1;
   while (page <= 10) {
     const comments = await github(`${api}/issues/${issueNumber}/comments?per_page=100&page=${page}`);
-    for (const comment of [...comments].reverse()) {
+    for (const comment of comments) {
       const match = comment.body?.match(markerPattern);
-      if (match) return { threadId: match[1], starterId: match[2], channelId: match[3] || defaultForumId };
+      if (match) mappings.push({
+        threadId: match[1],
+        starterId: match[2],
+        channelId: match[3] || defaultForumId,
+        commentId: comment.id,
+        createdAt: comment.created_at
+      });
     }
     if (comments.length < 100) break;
     page++;
   }
-  return null;
+  if (!mappings.length) return null;
+
+  // Keep the newest mapping and remove stale duplicate Discord posts left by earlier racing runs.
+  mappings.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const canonical = mappings[0];
+  const seenThreads = new Set([canonical.threadId]);
+  for (const duplicate of mappings.slice(1)) {
+    if (!seenThreads.has(duplicate.threadId)) {
+      seenThreads.add(duplicate.threadId);
+      try {
+        await discord(`/channels/${duplicate.threadId}`, { method: "DELETE" });
+        console.log(`Removed duplicate Discord thread ${duplicate.threadId} for issue #${issueNumber}.`);
+      } catch (error) {
+        // A stale mapping may already point to a thread that was manually deleted.
+        if (!String(error).includes("10003") && !String(error).includes("Unknown Channel")) throw error;
+      }
+    }
+    await github(`${api}/issues/comments/${duplicate.commentId}`, { method: "DELETE" });
+  }
+  return canonical;
 }
 
 async function saveMapping(threadId, starterId, channelId) {
@@ -141,12 +167,10 @@ async function ensureCorrectDestination(mapping) {
 let mapping = await findMapping();
 
 if (issue.state !== "open") {
-  if (action === "closed" && mapping) {
-    await discord(`/channels/${mapping.threadId}`, { method: "PATCH", body: { archived: true, locked: false } });
-    console.log(`Archived Discord thread for closed issue #${issueNumber}.`);
-  } else if (action === "deleted" && mapping) {
+  if ((action === "closed" || action === "deleted") && mapping) {
     await discord(`/channels/${mapping.threadId}`, { method: "DELETE" });
-    console.log(`Deleted Discord thread for deleted issue #${issueNumber}.`);
+    await github(`${api}/issues/comments/${mapping.commentId}`, { method: "DELETE" });
+    console.log(`Deleted Discord thread and mapping for completed issue #${issueNumber}.`);
   } else {
     console.log(`Issue #${issueNumber} is closed; no sync performed.`);
   }
@@ -185,7 +209,8 @@ if (isCommentEvent) {
 
 if (action === "deleted") {
   await discord(`/channels/${mapping.threadId}`, { method: "DELETE" });
-  console.log(`Deleted Discord thread for deleted issue #${issueNumber}.`);
+  await github(`${api}/issues/comments/${mapping.commentId}`, { method: "DELETE" });
+  console.log(`Deleted Discord thread and mapping for deleted issue #${issueNumber}.`);
   process.exit(0);
 }
 if (action === "reopened") {
