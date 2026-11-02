@@ -25,7 +25,7 @@ Invite the bot with the `bot` scope and grant access to both Forum channels. It 
 - If an issue's labels change and it belongs in the other forum, the integration creates its post in the correct forum, updates the GitHub mapping, and deletes the old Discord post.
 - Issue title, description, labels, assignees, and relevant issue updates are synchronized.
 - GitHub comments created, edited, or deleted while the issue is open are synchronized into its Discord thread.
-- Closing an issue archives its Discord thread. Closed issues and their comments are not synchronized. Reopening an issue resumes synchronization.
+- Closing an issue deletes its Discord forum thread and removes the stored mapping. Reopening it creates a fresh forum post. Closed issues and their comments are not synchronized. Reopening an issue resumes synchronization.
 - Pull requests are ignored.
 - A manual workflow run fetches **only open issues**. It does not import closed issues or historical comments.
 
@@ -39,3 +39,7 @@ The **Feature request** template automatically applies the `feature-request` lab
 
 Run **Actions → GitHub Issues to Discord Forum → Run workflow** to sync all currently open issues. Existing posts are updated rather than duplicated.
 
+
+## Duplicate prevention and completed issues
+
+All workflow events for this repository are serialized so a manual sync cannot race an issue-open/comment event while both are creating the same forum post. If older runs already left multiple mapping comments, the script keeps the newest mapping, deletes the extra Discord threads, and removes the stale mapping comments. When an issue is closed, its Discord post is deleted (the GitHub issue itself is never deleted).
