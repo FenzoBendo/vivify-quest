@@ -157,7 +157,7 @@ if (isCommentEvent) {
   process.exit(0);
 }
 
-if (action === "opened" && !mapping) {
+if ((action === "opened" || action === "sync") && !mapping) {
   mapping = await createThread();
 } else if (!mapping) {
   console.log(`No Discord thread mapping for issue #${issueNumber}; action '${action}' skipped.`);
@@ -190,7 +190,7 @@ if (action !== "opened") {
     }
   });
 }
-if (action === "closed") {
+if (action === "closed" || (action === "sync" && issue.state === "closed")) {
   await discord(`/channels/${mapping.threadId}`, { method: "PATCH", body: { archived: true, locked: false } });
 }
 console.log(`Synced issue #${issueNumber} action '${action}'.`);
