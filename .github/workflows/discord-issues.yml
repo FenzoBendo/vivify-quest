@@ -38,6 +38,9 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
       - name: Sync all issues with Discord forum (manual run)
         if: github.event_name == 'workflow_dispatch'
         env:
