@@ -44,6 +44,12 @@ If organization or repository policy restricts workflow permissions, allow GitHu
 
 Pull request events are ignored.
 
+## Run a full manual sync
+
+The workflow also supports **Actions → GitHub Issues to Discord Forum → Run workflow**. A manual run fetches every issue (open and closed), skips pull requests, creates missing Forum posts, and refreshes existing linked posts. Closed issues are archived in Discord. The mapping comment makes repeated manual runs update existing posts instead of intentionally creating duplicates.
+
+The automatic issue and comment event triggers remain enabled.
+
 ## Test it
 
 1. Add both Discord secrets.
