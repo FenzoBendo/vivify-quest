@@ -1,40 +1,36 @@
 import { readFileSync } from "node:fs";
 
 const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
-const repo = process.env.GITHUB_REPOSITORY;
-const [owner, repository] = repo.split("/");
+const [owner, repository] = process.env.GITHUB_REPOSITORY.split("/");
 const issue = event.issue;
 const action = event.action;
 const isCommentEvent = process.env.GITHUB_EVENT_NAME === "issue_comment";
 const githubToken = process.env.GITHUB_TOKEN;
 const discordToken = process.env.DISCORD_BOT_TOKEN;
-const forumId = process.env.DISCORD_FORUM_CHANNEL_ID;
-const markerPattern = /<!-- discord-forum-thread:(\d+) starter:(\d+) -->/;
+const defaultForumId = process.env.DISCORD_FORUM_CHANNEL_ID;
+const featureForumId = process.env.DISCORD_FEATURE_REQUESTS_CHANNEL_ID;
+const markerPattern = /<!-- discord-forum-thread:(\d+) starter:(\d+)(?: channel:(\d+))? -->/;
 
 if (!issue || issue.pull_request) {
   console.log("Not an issue event; skipping.");
   process.exit(0);
 }
-if (!githubToken || !discordToken || !forumId) {
+if (!githubToken || !discordToken || !defaultForumId) {
   throw new Error("Missing GITHUB_TOKEN, DISCORD_BOT_TOKEN, or DISCORD_FORUM_CHANNEL_ID.");
 }
 
-async function request(url, { method = "GET", headers = {}, body } = {}) {
+async function github(url, { method = "GET", body } = {}) {
   const response = await fetch(url, {
     method,
     headers: {
-      "Accept": "application/vnd.github+json",
+      Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
-      "Authorization": `Bearer ${githubToken}`,
-      ...headers,
+      Authorization: `Bearer ${githubToken}`,
       ...(body === undefined ? {} : { "Content-Type": "application/json" })
     },
     body: body === undefined ? undefined : JSON.stringify(body)
   });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`GitHub API ${method} ${url} failed (${response.status}): ${detail}`);
-  }
+  if (!response.ok) throw new Error(`GitHub API ${method} ${url} failed (${response.status}): ${await response.text()}`);
   return response.status === 204 ? null : response.json();
 }
 
@@ -42,15 +38,12 @@ async function discord(path, { method = "GET", body } = {}) {
   const response = await fetch(`https://discord.com/api/v10${path}`, {
     method,
     headers: {
-      "Authorization": `Bot ${discordToken}`,
+      Authorization: `Bot ${discordToken}`,
       "Content-Type": "application/json"
     },
     body: body === undefined ? undefined : JSON.stringify(body)
   });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`Discord API ${method} ${path} failed (${response.status}): ${detail}`);
-  }
+  if (!response.ok) throw new Error(`Discord API ${method} ${path} failed (${response.status}): ${await response.text()}`);
   return response.status === 204 ? null : response.json();
 }
 
@@ -62,8 +55,21 @@ function clean(value = "") {
   return String(value).replace(/@everyone/g, "@\u200beveryone").replace(/@here/g, "@\u200bhere");
 }
 function truncate(value, max = 1850) {
-  const text = clean(value);
-  return text.length > max ? text.slice(0, max - 20) + "\n… (truncated)" : text;
+  const valueClean = clean(value);
+  return valueClean.length > max ? valueClean.slice(0, max - 20) + "\n… (truncated)" : valueClean;
+}
+function isFeatureRequest() {
+  return (issue.labels || []).some(label => {
+    const name = (typeof label === "string" ? label : label.name || "").toLowerCase().replace(/[_ ]+/g, "-");
+    return name === "feature-request" || name === "enhancement";
+  });
+}
+function destinationForumId() {
+  if (isFeatureRequest()) {
+    if (!featureForumId) throw new Error("This issue is a feature request, but DISCORD_FEATURE_REQUESTS_CHANNEL_ID is not configured.");
+    return featureForumId;
+  }
+  return defaultForumId;
 }
 function labelsText() {
   const labels = (issue.labels || []).map(label => typeof label === "string" ? label : label.name);
@@ -76,19 +82,16 @@ function labelsText() {
 }
 function issueContent() {
   const body = truncate(issue.body || "_No description provided._", 1250);
-  return truncate(
-    `**[ #${issueNumber} ] ${clean(issue.title)}**\n${issueUrl}\n\n${body}\n\n---\n${labelsText()}`,
-    1950
-  );
+  return truncate(`**[ #${issueNumber} ] ${clean(issue.title)}**\n${issueUrl}\n\n${body}\n\n---\n${labelsText()}`, 1950);
 }
 
 async function findMapping() {
   let page = 1;
   while (page <= 10) {
-    const comments = await request(`${api}/issues/${issueNumber}/comments?per_page=100&page=${page}`);
-    for (const comment of comments) {
+    const comments = await github(`${api}/issues/${issueNumber}/comments?per_page=100&page=${page}`);
+    for (const comment of [...comments].reverse()) {
       const match = comment.body?.match(markerPattern);
-      if (match) return { threadId: match[1], starterId: match[2] };
+      if (match) return { threadId: match[1], starterId: match[2], channelId: match[3] || defaultForumId };
     }
     if (comments.length < 100) break;
     page++;
@@ -96,16 +99,16 @@ async function findMapping() {
   return null;
 }
 
-async function saveMapping(threadId, starterId) {
-  const marker = `<!-- discord-forum-thread:${threadId} starter:${starterId} -->`;
-  await request(`${api}/issues/${issueNumber}/comments`, {
+async function saveMapping(threadId, starterId, channelId) {
+  const marker = `<!-- discord-forum-thread:${threadId} starter:${starterId} channel:${channelId} -->`;
+  await github(`${api}/issues/${issueNumber}/comments`, {
     method: "POST",
     body: { body: `Discord forum thread ID: ${threadId}\n\n${marker}` }
   });
 }
 
-async function createThread() {
-  const created = await discord(`/channels/${forumId}/threads`, {
+async function createThread(channelId) {
+  const created = await discord(`/channels/${channelId}/threads`, {
     method: "POST",
     body: {
       name: `#${issueNumber} · ${clean(issue.title).slice(0, 85)}`.slice(0, 100),
@@ -118,15 +121,39 @@ async function createThread() {
     const messages = await discord(`/channels/${created.id}/messages?limit=1`);
     starterId = messages[0]?.id;
   }
-  if (!created.id || !starterId) {
-    throw new Error("Discord did not return a forum thread ID and starter message ID.");
-  }
-  await saveMapping(created.id, starterId);
-  console.log(`Created Discord forum thread ${created.id} for issue #${issueNumber}.`);
-  return { threadId: created.id, starterId };
+  if (!created.id || !starterId) throw new Error("Discord did not return a forum thread ID and starter message ID.");
+  await saveMapping(created.id, starterId, channelId);
+  console.log(`Created Discord forum thread ${created.id} for issue #${issueNumber} in channel ${channelId}.`);
+  return { threadId: created.id, starterId, channelId };
+}
+
+async function ensureCorrectDestination(mapping) {
+  const targetChannelId = destinationForumId();
+  if (!mapping) return createThread(targetChannelId);
+  if (mapping.channelId === targetChannelId) return mapping;
+
+  const replacement = await createThread(targetChannelId);
+  await discord(`/channels/${mapping.threadId}`, { method: "DELETE" });
+  console.log(`Moved issue #${issueNumber} to its correct Discord forum channel.`);
+  return replacement;
 }
 
 let mapping = await findMapping();
+
+if (issue.state !== "open") {
+  if (action === "closed" && mapping) {
+    await discord(`/channels/${mapping.threadId}`, { method: "PATCH", body: { archived: true, locked: false } });
+    console.log(`Archived Discord thread for closed issue #${issueNumber}.`);
+  } else if (action === "deleted" && mapping) {
+    await discord(`/channels/${mapping.threadId}`, { method: "DELETE" });
+    console.log(`Deleted Discord thread for deleted issue #${issueNumber}.`);
+  } else {
+    console.log(`Issue #${issueNumber} is closed; no sync performed.`);
+  }
+  process.exit(0);
+}
+
+mapping = await ensureCorrectDestination(mapping);
 
 if (isCommentEvent) {
   const comment = event.comment;
@@ -134,14 +161,13 @@ if (isCommentEvent) {
     console.log("Integration mapping comment; skipping.");
     process.exit(0);
   }
-  if (!mapping) {
-    console.log("No linked Discord thread exists yet; skipping comment event.");
-    process.exit(0);
-  }
   if (action === "deleted") {
     await discord(`/channels/${mapping.threadId}/messages`, {
       method: "POST",
-      body: { content: `A GitHub comment by **${clean(comment?.user?.login || "a user")}** was deleted.\n${issueUrl}`, allowed_mentions: { parse: [] } }
+      body: {
+        content: `A GitHub comment by **${clean(comment?.user?.login || "a user")}** was deleted.\n${issueUrl}`,
+        allowed_mentions: { parse: [] }
+      }
     });
   } else if (action === "created" || action === "edited") {
     const heading = action === "edited" ? "GitHub comment edited" : "New GitHub comment";
@@ -157,27 +183,21 @@ if (isCommentEvent) {
   process.exit(0);
 }
 
-if ((action === "opened" || action === "sync") && !mapping) {
-  mapping = await createThread();
-} else if (!mapping) {
-  console.log(`No Discord thread mapping for issue #${issueNumber}; action '${action}' skipped.`);
-  process.exit(0);
-}
-
 if (action === "deleted") {
   await discord(`/channels/${mapping.threadId}`, { method: "DELETE" });
   console.log(`Deleted Discord thread for deleted issue #${issueNumber}.`);
   process.exit(0);
 }
-
 if (action === "reopened") {
   await discord(`/channels/${mapping.threadId}`, { method: "PATCH", body: { archived: false, locked: false } });
 }
 if (action === "edited") {
-  await discord(`/channels/${mapping.threadId}`, { method: "PATCH", body: { name: `#${issueNumber} · ${clean(issue.title).slice(0, 85)}`.slice(0, 100) } });
+  await discord(`/channels/${mapping.threadId}`, {
+    method: "PATCH",
+    body: { name: `#${issueNumber} · ${clean(issue.title).slice(0, 85)}`.slice(0, 100) }
+  });
 }
-
-if (action !== "opened") {
+if (action !== "opened" && action !== "sync") {
   await discord(`/channels/${mapping.threadId}/messages/${mapping.starterId}`, {
     method: "PATCH",
     body: { content: issueContent(), allowed_mentions: { parse: [] } }
@@ -189,8 +209,10 @@ if (action !== "opened") {
       allowed_mentions: { parse: [] }
     }
   });
+} else if (action === "sync") {
+  await discord(`/channels/${mapping.threadId}/messages/${mapping.starterId}`, {
+    method: "PATCH",
+    body: { content: issueContent(), allowed_mentions: { parse: [] } }
+  });
 }
-if (action === "closed" || (action === "sync" && issue.state === "closed")) {
-  await discord(`/channels/${mapping.threadId}`, { method: "PATCH", body: { archived: true, locked: false } });
-}
-console.log(`Synced issue #${issueNumber} action '${action}'.`);
+console.log(`Synced open issue #${issueNumber} action '${action}'.`);
