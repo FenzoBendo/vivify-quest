@@ -31,7 +31,8 @@ permissions:
   issues: write
 
 concurrency:
-  group: discord-issue-${{ github.repository }}-${{ github.event.issue.number || 'manual-sync' }}
+  # Serialize manual syncs with issue/comment events so two runs cannot both create a post before the mapping comment exists.
+  group: discord-issues-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
