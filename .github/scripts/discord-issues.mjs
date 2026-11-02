@@ -113,7 +113,11 @@ async function createThread() {
       message: { content: issueContent(), allowed_mentions: { parse: [] } }
     }
   });
-  const starterId = created.message?.id;
+  let starterId = created.message?.id;
+  if (created.id && !starterId) {
+    const messages = await discord(`/channels/${created.id}/messages?limit=1`);
+    starterId = messages[0]?.id;
+  }
   if (!created.id || !starterId) {
     throw new Error("Discord did not return a forum thread ID and starter message ID.");
   }
@@ -166,9 +170,7 @@ if (action === "deleted") {
   process.exit(0);
 }
 
-if (action === "closed") {
-  await discord(`/channels/${mapping.threadId}`, { method: "PATCH", body: { archived: true, locked: false } });
-} else if (action === "reopened") {
+if (action === "reopened") {
   await discord(`/channels/${mapping.threadId}`, { method: "PATCH", body: { archived: false, locked: false } });
 }
 if (action === "edited") {
@@ -187,5 +189,8 @@ if (action !== "opened") {
       allowed_mentions: { parse: [] }
     }
   });
+}
+if (action === "closed") {
+  await discord(`/channels/${mapping.threadId}`, { method: "PATCH", body: { archived: true, locked: false } });
 }
 console.log(`Synced issue #${issueNumber} action '${action}'.`);
