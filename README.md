@@ -10,7 +10,12 @@ If you need help collecting diagnostics, expand the guide below. For a map probl
 
 #### Video walkthrough
 
-<video controls width="100%" src="https://github.com/trail-b1az3r/vivify-quest/raw/refs/heads/main/assets/videos/2026-11-02%2017-12-02.mp4"></video>
+<div align="center">
+  <a href="https://www.youtube.com/watch?v=cS4c0HVIT-k">
+    <img src="https://img.youtube.com/vi/cS4c0HVIT-k/hqdefault.jpg" alt="Vivify Quest log help video walkthrough" width="720">
+  </a>
+  <p><a href="https://www.youtube.com/watch?v=cS4c0HVIT-k">Watch the Vivify Quest log help walkthrough on YouTube</a></p>
+</div>
 
 #### Which logs matter?
 
