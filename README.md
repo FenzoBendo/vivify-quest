@@ -24,8 +24,17 @@ Vivify stores its diagnostics in:
 
 Collect these two files for a normal map issue:
 
-- **`VivifySession.txt` — required.** The primary Vivify-specific runtime log. It is especially useful for PC-to-Quest conversion, shader translation, bundle loading, Vivify events, cameras, materials, blits, screen textures, rendering settings, AudioLink, and map-specific failures.
+- **`VivifySession.txt` — required.** The primary Vivify-specific runtime log for the current launch. It is especially useful for PC-to-Quest conversion, shader translation, bundle loading, Vivify events, cameras, materials, blits, screen textures, rendering settings, AudioLink, and map-specific failures. It is overwritten when Beat Saber starts again.
 - **`VivifyReport.txt` — also important.** The per-level report. Include it whenever a specific map does not work.
+- **`vivify_global.txt` — strongly recommended, especially after a crash or restart.** This is the persistent, timestamped Vivify log. Unlike `VivifySession.txt`, it is not cleared on launch: it appends entries from successive sessions, so it can preserve the previous run after a restart. It also records level-teardown breadcrumbs; the last `Vivify level end:` line can identify which teardown step was reached before a crash.
+
+The global log is in the same Vivify folder:
+
+```
+/sdcard/ModData/com.beatgames.beatsaber/Mods/Vivify/vivify_global.txt
+```
+
+When it grows to about 9 MB, Vivify continues in numbered parts such as `vivify_global-p2.txt`, `vivify_global-p3.txt`, and so on. Collect **all existing `vivify_global*.txt` parts**, not just the first file. Oldest parts are automatically pruned only when the combined global-log storage exceeds about 1 GB. The global log is available in the full build; the Lite build does not write it.
 
 For crashes, also provide the contents of:
 
@@ -39,8 +48,9 @@ For crashes, also provide the contents of:
 2. Start Beat Saber and reproduce the problem. If possible, use the exact level that causes it.
 3. Close or restart Beat Saber if necessary so the diagnostic files are written.
 4. Use a Quest file manager, QuestPatcher, or another tool that can access the headset's files. Open `ModData/com.beatgames.beatsaber/Mods/Vivify/` and copy `VivifySession.txt` and `VivifyReport.txt`.
-5. If the problem is a crash, also collect the files in `ModData/com.beatgames.beatsaber/logs2/`.
-6. Attach the files to your GitHub issue. **Attach the files instead of pasting the entire logs into the issue.** If GitHub does not accept an upload, use an accessible file link.
+5. Copy `vivify_global.txt` and every numbered `vivify_global-pN.txt` part from the Vivify folder. This is particularly important if Beat Saber has already been restarted, because the current `VivifySession.txt` may no longer contain the run that crashed.
+6. If the problem is a crash, also collect the files in `ModData/com.beatgames.beatsaber/logs2/`.
+7. Attach the files to your GitHub issue. **Attach the files instead of pasting the entire logs into the issue.** If GitHub does not accept an upload, use an accessible file link.
 
 #### Android Logcat is supplementary
 
@@ -62,9 +72,9 @@ adb logcat -d > logcat.txt
 
 #### What to include in your issue
 
-- **Normal map problem:** `VivifySession.txt` and `VivifyReport.txt`.
-- **Recommended extra evidence:** the two Vivify files plus `logcat.txt`.
-- **Crash:** the two Vivify files, the `logs2/` contents, and `logcat.txt`.
+- **Normal map problem:** `VivifySession.txt`, `VivifyReport.txt`, and all available `vivify_global*.txt` files.
+- **Recommended extra evidence:** those Vivify files plus `logcat.txt`.
+- **Crash:** all available Vivify logs (including every global-log part), the `logs2/` contents, and `logcat.txt`.
 - **Map-specific conversion or rendering problem:** include the affected map or bundle if possible.
 
 Always state the exact level or levels where the problem happens. For example:
@@ -82,14 +92,15 @@ If you genuinely cannot access `VivifySession.txt`, say so in the issue. Do not 
 
 | File | Importance | What it contains |
 |---|---|---|
-| `VivifySession.txt` | **Highest** | Vivify-specific runtime and session diagnostics |
+| `VivifySession.txt` | **Highest** | Current-launch Vivify runtime and session diagnostics; overwritten at next launch |
 | `VivifyReport.txt` | **Very high** | Per-level Vivify diagnostics |
+| `vivify_global*.txt` | **Very high** | Timestamped history across launches; crash/teardown breadcrumbs; include every numbered part |
 | `logs2/` | **High for crashes** | Beat Saber crash logs |
 | `logcat.txt` | Supplementary | Android, Unity, and system-wide output |
 | Screenshots or video | Supplementary | Visual evidence of the problem |
 | Map or bundle | Very useful | Evidence for map-specific conversion/rendering problems |
 
-**TL;DR:** Send `VivifySession.txt` first, `VivifyReport.txt` for per-level details, `logs2/` for crashes, and Logcat only as additional system-level evidence. Logcat is not a replacement for `VivifySession.txt`.
+**TL;DR:** Send `VivifySession.txt`, `VivifyReport.txt`, and every available `vivify_global*.txt` file. Include `logs2/` for crashes and Logcat only as additional system-level evidence. The global log preserves earlier sessions; Logcat is not a replacement for Vivify's own logs.
 
 </details>
 # Vivify Quest
