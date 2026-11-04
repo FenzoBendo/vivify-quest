@@ -6,6 +6,9 @@
 #include "UnityEngine/Canvas.hpp"
 #include <exception>
 #include "UnityEngine/AnimatorCullingMode.hpp"
+#include "UnityEngine/Camera.hpp"
+#include "UnityEngine/RenderTexture.hpp"
+#include "UnityEngine/StereoTargetEyeMask.hpp"
 
 namespace Vivify {
 namespace {
@@ -28,6 +31,35 @@ int CullOffscreenAnimators(UnityEngine::GameObject* root) {
     culled++;
   }
   return culled;
+}
+
+// Cameras a map's prefab brings to render into a texture (0.15.1): Through
+// The Screen's in-world screens, mirrors, shadow and light-mesh cameras. In
+// the editor and on PC they are set to "Both" eyes, and there a camera with a
+// target texture renders that texture. On the Quest's XR rendering a camera
+// with a stereo target eye is an eye camera: it drew into the headset view
+// instead, at its texture's size, and the map became "a tiny square" in the
+// corner while its screens stayed empty. Such a camera now targets no eye, so
+// it renders into its texture once per frame, as it does on PC.
+int MakeTextureCamerasSingleView(UnityEngine::GameObject* root) {
+  if (!IsManagedAlive(root)) return 0;
+  int changed = 0;
+  auto cameras = root->GetComponentsInChildren<UnityEngine::Camera*>(true);
+  for (int i = 0; i < cameras.size(); i++) {
+    auto* camera = cameras[i];
+    if (!IsManagedAlive(camera)) continue;
+    auto* target = camera->get_targetTexture().unsafePtr();
+    if (!IsManagedAlive(target)) continue;
+    if (camera->get_stereoTargetEye() == UnityEngine::StereoTargetEyeMask::None) continue;
+    camera->set_stereoTargetEye(UnityEngine::StereoTargetEyeMask::None);
+    changed++;
+    auto cameraObject = camera->get_gameObject();
+    PaperLogger.info("Vivify prefab camera '{}' renders into texture '{}' ({}x{}): set to no eye, so it draws "
+                     "there instead of into the headset view",
+                     IsManagedAlive(cameraObject.unsafePtr()) ? ToStdString(cameraObject->get_name()) : "?",
+                     ToStdString(target->get_name()), target->get_width(), target->get_height());
+  }
+  return changed;
 }
 }
 }
@@ -698,6 +730,7 @@ void Runtime::InstantiatePrefab(CustomJSONData::CustomEventData* customEventData
     if (videoPlayer != nullptr) videoPlayers.emplace_back(videoPlayer);
   }
 
+  MakeTextureCamerasSingleView(instance);
   int const culledAnimators = CullOffscreenAnimators(instance);
   VIVIFY_DEBUG("Vivify InstantiatePrefab spawned: id='{}' asset='{}' tracks={} animators={} offscreenCulled={}",
                storageId, data.asset, data.tracks.size(), animators.size(), culledAnimators);
@@ -942,6 +975,7 @@ void Runtime::InstantiateReplacementPrefab(AssignedPrefabInfo const& info,
     animator->Update(0.01f);
   }
 
+  MakeTextureCamerasSingleView(spawned);
   CullOffscreenAnimators(spawned);
   RegisterSyncedObject(spawned, CurrentSongTime());
   replacement.spawnedObjects.emplace_back(spawned);

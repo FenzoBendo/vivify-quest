@@ -30,6 +30,19 @@ conversion cache version, and cached conversions are redone automatically.
   Visualizer, and 743 Aether's effects. Every program of Through The Screen,
   Get Your Wish, Lifelike and YOU now compiles and links (vertex, geometry and
   fragment stages together) under glslang.
+- **Through The Screen was "a tiny square".** Its prefabs bring five cameras
+  that render into small textures for its in-world screens (256×224, 128×128,
+  32×32 and others). The map leaves them set to both eyes. On the Quest's XR
+  rendering, a camera with an eye set is an eye camera. These drew into the
+  headset view instead of their textures, at the texture's size, so the map
+  showed as a small square in the corner and its screens stayed empty
+  ([#102](https://github.com/trail-b1az3r/vivify-quest/issues/102)). A camera
+  in a map prefab that renders into a texture is now set to no eye, so it
+  draws into its texture as it does on PC. It is logged as `Vivify prefab
+  camera ...`. One limit: this map's PC bundle is a Unity 2019 build, whose
+  converted shaders have only two-eye (multiview) programs. Converted objects
+  seen through such a camera still draw nothing in its texture; the game's
+  own objects do draw.
 - **Get Your Wish and Burning Sands crashed at the start of the level.** Both
   turn on realtime reflection probes at time 0 and spawn probes. A realtime
   probe renders the scene six more times into a cubemap. Get Your Wish's
