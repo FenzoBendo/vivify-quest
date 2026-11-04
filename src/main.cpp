@@ -632,6 +632,14 @@ void RegisterModSettings() {
         BSML::Lite::CreateUIButton(parent, u"Convert All PC Bundles", []() { startConversion(false); });
 
         header("Diagnostics");
+        if constexpr (!kLiteBuild) {
+          // The Vivify Quest test map (testmap/ in the repository): a map made
+          // to exercise what a port has to get right (0.15.2).
+          BSML::Lite::CreateUIButton(parent, u"Test Vivify", []() {
+            SetConvertStatusText("Installing the test map...");
+            Vivify::InstallTestMap([](std::string const& text) { SetConvertStatusText(text); });
+          });
+        }
         toggle(u"Debug Logging", GetVivifyDebugLogging(),
                [](bool value) { SetBoolConfigValue(kVivifyDebugLoggingConfigKey, value, gVivifyDebugLogging); });
         // paperlog output is not reachable without adb, so Vivify writes its own

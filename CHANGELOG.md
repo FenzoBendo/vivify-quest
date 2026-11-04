@@ -36,6 +36,27 @@ conversion cache version, and cached conversions are redone automatically.
   (on by default) and **Forget Crash Recovery** (clears the list). Not in
   Lite. Host tests cover the cases (`tools/recovery`, run in CI).
 
+- **Test Vivify: a test map made for this port** (`testmap/`). It is a PC
+  Vivify map to play and to check a dev build against, set to Mud Flow's *The
+  Sense of Me / Chemicals*. You stand in a car driving through rain at night;
+  at the switch to *Chemicals* the drive gives way to a shore at dusk, with an
+  original character sitting by the water. It covers:
+  - prefabs and their removal, and render settings (fog, ambient, skybox);
+  - a particle system, plus material and global property animation;
+  - a geometry-shader glow along the edges of the view;
+  - custom notes, debris and sabers with a trail;
+  - two screen effects (Blit).
+
+  Every shader is written for single-pass instanced stereo, as PC maps are.
+  The Unity project builds every mesh, material and prefab from code, and a
+  new workflow (`Build Test Map`) exports the bundle with Unity 2021.3 once
+  the Unity license secrets are set (`testmap/README.md`). `build.yml` packs
+  the latest built map into the full QMOD. **Settings > Diagnostics > Test
+  Vivify** installs it as a custom level. The song is a commercial track and
+  never ships: the map plays your own .ogg copy
+  (`Mods/Vivify/TestMapSong.ogg`).
+- QMODs can now carry `fileCopies` (`scripts/createqmod.ps1`).
+
 ### Notes on the 0.15.1 logs
 - Burning Sands and Get Your Wish no longer crash at the start: both played
   to the end with realtime reflection probes off.

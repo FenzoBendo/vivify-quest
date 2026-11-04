@@ -125,8 +125,37 @@ jobs:
         fi
         python3 scripts/check-so-dependencies.py "$so"
 
+    # The test map for Settings > Test Vivify, from the latest successful run
+    # of build-test-map.yml. Missing until that workflow has run with Unity
+    # license secrets; the QMOD then ships without it and the setting says so.
+    - name: Fetch the test map
+      uses: dawidd6/action-download-artifact@v6
+      continue-on-error: true
+      with:
+        workflow: build-test-map.yml
+        name: VivifyTestMap
+        workflow_conclusion: success
+        search_artifacts: true
+        if_no_artifact_found: warn
+
     - name: Create the full QMOD
-      run: qpm s qmod
+      run: |
+        if [ -f VivifyTestMap.zip ]; then
+          python3 - <<'PY'
+        import json
+        m = json.load(open('mod.json'))
+        m.setdefault('fileCopies', []).append({
+            'name': 'VivifyTestMap.zip',
+            'destination': '/sdcard/ModData/com.beatgames.beatsaber/Mods/Vivify/VivifyTestMap.zip',
+        })
+        json.dump(m, open('mod.json', 'w'), indent=2)
+        PY
+          echo "Test map: included" >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "Test map: not included (build-test-map.yml has not produced one yet)" >> "$GITHUB_STEP_SUMMARY"
+        fi
+        qpm s qmod
+        git checkout -- mod.json
 
     - name: Read mod version
       id: mod_version

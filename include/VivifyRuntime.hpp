@@ -13,6 +13,10 @@ std::string SelectedVivifyMapPath();
 // Chooses the selected map's bundle again, after its Windows-bundle choice
 // changed. Does nothing during a level.
 void ReselectSelectedMap();
+// Settings > Test Vivify: unpacks the test map shipped in the QMOD into
+// CustomLevels/VivifyTest, with the player's own copy of the song, and
+// refreshes SongCore. `status` is called on the main thread with the outcome.
+void InstallTestMap(std::function<void(std::string const&)> status);
 
 // Progress of a bulk PC->Android bundle conversion pass.
 struct BulkConversionProgress {
