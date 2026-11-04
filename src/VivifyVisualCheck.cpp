@@ -12,6 +12,9 @@
 #include "UnityEngine/Camera.hpp"
 #include "UnityEngine/Color.hpp"
 #include "UnityEngine/MaterialPropertyBlock.hpp"
+#include "UnityEngine/Transform.hpp"
+#include "GlobalNamespace/Mirror.hpp"
+#include "GlobalNamespace/MirrorRendererSO.hpp"
 
 namespace Vivify {
 
@@ -180,6 +183,50 @@ void Runtime::RunVisualCheck(std::string_view when) {
                      static_cast<int>(UnityEngine::RenderSettings::get_ambientMode().value__),
                      UnityEngine::RenderSettings::get_ambientIntensity(),
                      IsAlive(sun.unsafePtr()) ? ToStdString(sun->get_name()) : std::string("<none>"));
+  }
+
+  // The game's own mirrors (0.15.1), for reflections that turn with the
+  // head instead of staying in place (Lifelike's floor mirror, with
+  // GraphicsTweaks' mirrors on). Every enabled camera that sees a mirror
+  // renders a reflection for itself, so the cameras are listed too.
+  auto mirrors = UnityEngine::Object::FindObjectsOfType<GlobalNamespace::Mirror*>();
+  int mirrorsShown = 0;
+  for (int i = 0; mirrors && i < mirrors.size() && mirrorsShown < 4; i++) {
+    auto* mirror = mirrors[i];
+    if (!IsAlive(mirror)) continue;
+    auto gameObject = mirror->get_gameObject();
+    if (!IsAlive(gameObject.unsafePtr()) || !gameObject->get_activeInHierarchy()) continue;
+    mirrorsShown++;
+    auto const scale = gameObject->get_transform()->get_lossyScale();
+    auto* renderer = mirror->____renderer.unsafePtr();
+    auto* mirrorRenderer = mirror->____mirrorRenderer.unsafePtr();
+    PaperLogger.info("Vivify visual check: mirror '{}' isEnabled={} scale=({:.2f},{:.2f},{:.2f}) renderer: {} "
+                     "mirrorRenderer: {}",
+                     ToStdString(gameObject->get_name()), BoolText(mirror->get_isEnabled()), scale.x, scale.y,
+                     scale.z, IsAlive(renderer) ? describe(renderer) : std::string("<none>"),
+                     IsAlive(mirrorRenderer)
+                         ? fmt::format("stereo={}x{} mono={}x{} aa={} disableDepth={}",
+                                       mirrorRenderer->____stereoTextureWidth, mirrorRenderer->____stereoTextureHeight,
+                                       mirrorRenderer->____monoTextureWidth, mirrorRenderer->____monoTextureHeight,
+                                       mirrorRenderer->____maxAntiAliasing,
+                                       BoolText(mirrorRenderer->____disableDepthTexture))
+                         : std::string("<none>"));
+  }
+  if (mirrorsShown > 0) {
+    auto cameras = UnityEngine::Object::FindObjectsOfType<UnityEngine::Camera*>();
+    std::string cameraList;
+    for (int i = 0; cameras && i < cameras.size(); i++) {
+      auto* camera = cameras[i];
+      if (!IsAlive(camera) || !camera->get_enabled()) continue;
+      auto cameraObject = camera->get_gameObject();
+      if (!IsAlive(cameraObject.unsafePtr()) || !cameraObject->get_activeInHierarchy()) continue;
+      cameraList += fmt::format("{}'{}' stereo={} eye={} target={} mask=0x{:x}", cameraList.empty() ? "" : "; ",
+                                ToStdString(cameraObject->get_name()), BoolText(camera->get_stereoEnabled()),
+                                static_cast<int>(camera->get_stereoTargetEye().value__),
+                                IsAlive(camera->get_targetTexture().unsafePtr()) ? "texture" : "screen",
+                                static_cast<uint32_t>(camera->get_cullingMask()));
+    }
+    PaperLogger.info("Vivify visual check: cameras that may render the mirror: {}", cameraList);
   }
 
   // What the scene is drawing with (0.15.0), for "the map is just black":

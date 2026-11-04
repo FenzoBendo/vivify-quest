@@ -48,7 +48,8 @@ conversion cache version, and cached conversions are redone automatically.
   Every text in the Vivify tab now reserves its own height. The status line
   and the This Map row have a fixed height, wrap, and end in an ellipsis
   instead of drawing over the controls below. Setting labels shrink to fit
-  beside their control.
+  beside their control. The empty rows at the bottom now reserve real height,
+  so the last settings are no longer cut off by the scroll view.
 
 ### Added
 - **Level start and level end are logged line by line.** For 20 seconds after
@@ -58,6 +59,14 @@ conversion cache version, and cached conversions are redone automatically.
   loses the last lines.
 - The per-level settings line also shows `mapRealtimeShadows` and
   `mapReflectionProbes`.
+- **Mirror diagnostics** for reflections that turn with the head instead of
+  staying in place ([#81](https://github.com/trail-b1az3r/vivify-quest/issues/81)).
+  Each visual check (5, 30 and 90 s) logs the game's active mirrors and what
+  each one renders with. It also lists every enabled camera, since each camera
+  that sees a mirror renders its own reflection. Lifelike's floor mirror is
+  up from 73 s to 92 s, so the 90 s check catches it. Vivify does not touch the
+  game's mirrors, and the comment on #81 says the same problem was in 0.14.7.
+  This is for finding the cause, not a fix.
 
 ### Changed
 - **Converted maps are converted again** (conversion version 21) to pick up

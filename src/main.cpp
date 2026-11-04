@@ -750,7 +750,9 @@ void RegisterModSettings() {
           }));
         }
         // Spacers, so the last line of the menu is not clipped by the scroll view.
-        FixTextHeight(BSML::Lite::CreateText(parent, u" "), 2);
+        // The scroll view clips its last rows, which cut off the bottom of the
+        // menu (#81); three empty lines keep the real rows clear of that.
+        FixTextHeight(BSML::Lite::CreateText(parent, u" "), 3);
         } catch (std::exception const& e) {
           PaperLogger.error("Vivify settings menu: construction threw ({}); the controls after the "
                             "failure are missing", e.what());
