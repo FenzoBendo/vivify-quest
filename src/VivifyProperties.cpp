@@ -1,4 +1,7 @@
 #include "VivifyRuntimeInternal.hpp"
+#include "System/GC.hpp"
+#include "UnityEngine/Resources.hpp"
+#include "VivifyRecovery.hpp"
 #include "VivifyComponents.hpp"
 
 namespace Vivify {
@@ -649,6 +652,8 @@ std::unordered_map<std::string_view, SettingType> const kRenderSettingTypes = {
     {"shadowDistance"sv, SettingType::Float},
     {"shadowNearPlaneOffset"sv, SettingType::Float},
     {"pixelLightCount"sv, SettingType::Int},
+    // Not one a map sets: crash recovery's half-resolution textures (0.15.2).
+    {"masterTextureLimit"sv, SettingType::Int},
     {"anisotropicFiltering"sv, SettingType::Int},
     {"maximumLODLevel"sv, SettingType::Int},
     {"particleRaycastBudget"sv, SettingType::Int},
@@ -679,6 +684,7 @@ std::unordered_map<std::string_view, std::string_view> const kIcallSettingOwners
     {"shadowDistance"sv, "UnityEngine.QualitySettings"sv},
     {"shadowNearPlaneOffset"sv, "UnityEngine.QualitySettings"sv},
     {"pixelLightCount"sv, "UnityEngine.QualitySettings"sv},
+    {"masterTextureLimit"sv, "UnityEngine.QualitySettings"sv},
     {"anisotropicFiltering"sv, "UnityEngine.QualitySettings"sv},
     {"maximumLODLevel"sv, "UnityEngine.QualitySettings"sv},
     {"particleRaycastBudget"sv, "UnityEngine.QualitySettings"sv},
@@ -1199,6 +1205,45 @@ void Runtime::DisableRealtimeReflectionProbesForLevel() {
     return;
   }
   PaperLogger.info("Vivify: could not read realtimeReflectionProbes; left as it is");
+}
+
+// Crash recovery mode (0.15.2) for a map on the recovery list: one that last
+// time crashed, or froze and was backed out of (see VivifyRecovery.hpp). A
+// Quest app cannot be given more memory than the system allows, so this frees
+// what it can before the map starts and keeps the map's own use down:
+//   - assets nothing uses any more are unloaded and the managed heap collected;
+//   - textures load at half resolution (QualitySettings.masterTextureLimit 1:
+//     a quarter of the memory), put back with the level's render settings;
+//   - map effects render at half resolution or less (GetEffectResolutionPercent);
+//   - an effect that was starting when the map went down is skipped.
+void Runtime::EnterRecoveryModeIfNeeded() {
+  _recoveryMode = false;
+  _recoverySkippedBlits.clear();
+  SetRecoveryModeActive(false);
+  if (!GetCrashRecovery() || _selectedLevelPath.empty() || !Recovery::InRecovery(_selectedLevelPath)) return;
+  _recoveryMode = true;
+  _recoverySkippedBlits = Recovery::SkippedBlits(_selectedLevelPath);
+  SetRecoveryModeActive(true);
+  std::string skipped;
+  for (auto const& blit : _recoverySkippedBlits) skipped += (skipped.empty() ? "" : ", ") + blit;
+  PaperLogger.warn("Vivify crash recovery: this map did not end cleanly last time, so it plays in recovery mode: "
+                   "unused assets unloaded, textures at half resolution, effects at {}% or less{}{}. 'Forget "
+                   "Crash Recovery' in the advanced settings turns it off for every map",
+                   GetEffectResolutionPercent(), skipped.empty() ? "" : ", skipping ", skipped);
+  NoteVisualProblem("Crash recovery mode: textures at half resolution" +
+                    (skipped.empty() ? std::string() : ", effect(s) skipped: " + skipped));
+  try {
+    UnityEngine::Resources::UnloadUnusedAssets();
+    System::GC::Collect();
+  } catch (...) {
+  }
+  ApplyRenderSettingInt("masterTextureLimit", 1);
+}
+
+bool Runtime::IsRecoverySkippedBlit(std::string const& normalizedAsset) const {
+  if (!_recoveryMode || normalizedAsset.empty()) return false;
+  return std::find(_recoverySkippedBlits.begin(), _recoverySkippedBlits.end(), normalizedAsset) !=
+         _recoverySkippedBlits.end();
 }
 
 void Runtime::RestoreRenderSettings() {

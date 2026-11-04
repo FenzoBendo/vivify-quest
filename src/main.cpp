@@ -5,6 +5,7 @@
 #include <cstring>
 #include "VivifyRuntime.hpp"
 #include "VivifyReport.hpp"
+#include "VivifyRecovery.hpp"
 #include <string>
 #include <string_view>
 #include <fstream>
@@ -53,6 +54,7 @@ constexpr std::string_view kTranslateShadersConfigKey = "translateShadersOnConve
 constexpr std::string_view kAudioLinkConfigKey = "audioLink";
 constexpr std::string_view kMapRealtimeShadowsConfigKey = "mapRealtimeShadows";
 constexpr std::string_view kMapReflectionProbesConfigKey = "mapReflectionProbes";
+constexpr std::string_view kCrashRecoveryConfigKey = "crashRecovery";
 constexpr std::string_view kReplayRenderModeConfigKey = "replayRenderMode";
 constexpr std::string_view kBlitFixConfigKey = "blitScreenTextureFix";
 // Renamed in 0.14.18 so every install starts with it off: 0.14.15 saved it
@@ -109,6 +111,8 @@ bool gTranslateShaders = true;
 bool gAudioLink = true;
 bool gMapRealtimeShadows = false;
 bool gMapReflectionProbes = false;
+bool gCrashRecovery = true;
+std::atomic<bool> gRecoveryModeActive{false};
 bool gReplayRenderMode = false;
 bool gBlitFix = false;
 bool gPrepareShaders = false;
@@ -666,6 +670,22 @@ void RegisterModSettings() {
         advanced(toggle(u"Map Reflection Probes", GetMapReflectionProbes(), [](bool value) {
           SetBoolConfigValue(kMapReflectionProbesConfigKey, value, gMapReflectionProbes);
         }));
+        if constexpr (!kLiteBuild) {
+          // A map that crashed or froze last time plays in recovery mode
+          // next time: less memory, and without the effect that was
+          // starting when it went down (0.15.2).
+          advanced(toggle(u"Crash Recovery Mode", gCrashRecovery, [](bool value) {
+            SetBoolConfigValue(kCrashRecoveryConfigKey, value, gCrashRecovery);
+          }));
+          advanced(BSML::Lite::CreateUIButton(parent, u"Forget Crash Recovery", []() {
+            size_t const count = Vivify::Recovery::Entries().size();
+            Vivify::Recovery::ForgetAll();
+            PaperLogger.info("Vivify settings: crash recovery list cleared ({} entr{})", count,
+                             count == 1 ? "y" : "ies");
+            SetConvertStatusText("Crash recovery cleared (" + std::to_string(count) + " entr" +
+                                 (count == 1 ? "y" : "ies") + ")");
+          }));
+        }
         // Experimental: geometry-stage effects are drawn without that stage
         // instead of as grey stand-ins. Changing it reconverts affected maps.
         advanced(toggle(u"Geometry-Shader Effects (exp.)", GetDrawGeometryShaderEffects(),
@@ -846,6 +866,18 @@ bool GetMapReflectionProbes() {
   return gMapReflectionProbes;
 }
 
+bool GetCrashRecovery() {
+  return !kLiteBuild && gCrashRecovery;
+}
+
+bool GetRecoveryModeActive() {
+  return gRecoveryModeActive.load();
+}
+
+void SetRecoveryModeActive(bool active) {
+  gRecoveryModeActive.store(active);
+}
+
 bool GetMapRealtimeShadows() {
   return gMapRealtimeShadows;
 }
@@ -987,7 +1019,10 @@ int GetFarCullingDistance() {
 }
 
 int GetEffectResolutionPercent() {
-  return kLiteBuild ? 100 : std::clamp(gEffectResolution, 25, 100);
+  if (kLiteBuild) return 100;
+  int const percent = std::clamp(gEffectResolution, 25, 100);
+  // Crash recovery mode: half resolution or less (0.15.2).
+  return GetRecoveryModeActive() ? std::min(percent, 50) : percent;
 }
 
 float GetEffectResolutionScale() {
@@ -1021,6 +1056,7 @@ void EnsureConfigDefaults() {
   needsWrite |= EnsureBoolConfigValue(kAudioLinkConfigKey, true, gAudioLink);
   needsWrite |= EnsureBoolConfigValue(kMapRealtimeShadowsConfigKey, false, gMapRealtimeShadows);
   needsWrite |= EnsureBoolConfigValue(kMapReflectionProbesConfigKey, false, gMapReflectionProbes);
+  needsWrite |= EnsureBoolConfigValue(kCrashRecoveryConfigKey, true, gCrashRecovery);
   needsWrite |= EnsureBoolConfigValue(kReplayRenderModeConfigKey, false, gReplayRenderMode);
   needsWrite |= EnsureBoolConfigValue(kBlitFixConfigKey, false, gBlitFix);
   needsWrite |= EnsureBoolConfigValue(kPrepareShadersConfigKey, false, gPrepareShaders);
@@ -1042,6 +1078,14 @@ MOD_EXTERN_FUNC void setup(CModInfo *info) noexcept {
   *info = modInfo.to_c();
   try {
     InstallVivifyFileLogSink();
+  } catch (...) {
+  }
+  // What the previous run left behind: a Vivify map that crashed, or froze and
+  // was backed out of, goes on the crash recovery list (0.15.2).
+  try {
+    Vivify::Recovery::SetDirectory(std::string(kVivifyLogDir));
+    std::string const recovery = Vivify::Recovery::ProcessPreviousRun(static_cast<int64_t>(std::time(nullptr)));
+    if (!recovery.empty()) PaperLogger.warn("{}", recovery);
   } catch (...) {
   }
   // A config file another tool or a crash left unreadable must not take the

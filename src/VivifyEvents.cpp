@@ -1,4 +1,6 @@
 #include "VivifyRuntimeInternal.hpp"
+#include "VivifyRecovery.hpp"
+#include <ctime>
 #include "VivifyComponents.hpp"
 
 namespace Vivify {
@@ -81,6 +83,9 @@ void Runtime::PrepareBeatmap(CustomJSONData::CustomBeatmapData* beatmapData, flo
                beatmapData->v2orEarlier, beatmapData->customEventDatas.size(),
                triggerTime, _beatmapAD != nullptr);
   LoadMainBundle();
+  Recovery::LevelStarted(_selectedLevelPath, static_cast<int64_t>(std::time(nullptr)));
+  _lastRecoveryHeartbeat = std::chrono::steady_clock::now();
+  EnterRecoveryModeIfNeeded();
   DisableRealtimeShadowsForLevel();
   PreloadInstantiatePrefabs();
   ApplyMissedVivifyEvents(triggerTime);

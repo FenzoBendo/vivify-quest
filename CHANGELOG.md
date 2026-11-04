@@ -11,6 +11,40 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.2] - 2026-11-04
+
+### Added
+- **Crash recovery mode.** While a Vivify map plays, a small marker file
+  records the map, a heartbeat every 5 s, and each screen effect (Blit) as it
+  starts. On the next launch, a map counts as having gone down if:
+  - the game crashed or was closed while the map played, or
+  - you left the map from the pause menu within a minute of an effect
+    starting, and the game was restarted within 90 seconds of that. This is
+    what happened with 743 Aether's intro bokeh in 0.15.1.
+
+  Such a map goes on a recovery list (`RecoveryMaps.txt` beside the logs).
+  The next time it is played, it runs in recovery mode:
+  - unused assets are unloaded and memory collected before it starts;
+  - textures load at half resolution (a quarter of the memory), put back
+    when the map ends;
+  - map effects render at half resolution or less;
+  - the effect that was starting when it went down is skipped, and the log
+    says so.
+
+  A Quest app cannot be given more memory than the system allows; this is how
+  a map gets more room instead. New advanced settings: **Crash Recovery Mode**
+  (on by default) and **Forget Crash Recovery** (clears the list). Not in
+  Lite. Host tests cover the cases (`tools/recovery`, run in CI).
+
+### Notes on the 0.15.1 logs
+- Burning Sands and Get Your Wish no longer crash at the start: both played
+  to the end with realtime reflection probes off.
+- 743 Aether froze as its intro bokeh effect started (2 s in), and Why's This
+  Dealer froze as its post-process effect started (28.7 s in). Both shaders
+  convert, compile and link cleanly, and other maps' effects ran in the same
+  sessions, so the cause is not known yet. Recovery mode skips those effects
+  the next time after a freeze.
+
 ## [0.15.1] - 2026-11-04
 
 ### Fixed

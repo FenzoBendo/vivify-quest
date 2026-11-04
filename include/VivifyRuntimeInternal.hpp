@@ -138,6 +138,9 @@ private:
   void RunScheduledVisualChecks();
   void DisableRealtimeShadowsForLevel();
   void DisableRealtimeReflectionProbesForLevel();
+  // Crash recovery (0.15.2), see VivifyRecovery.hpp.
+  void EnterRecoveryModeIfNeeded();
+  bool IsRecoverySkippedBlit(std::string const& normalizedAsset) const;
   void RunVisualCheck(std::string_view when);
   void NoteVisualProblem(std::string problem);
   void DownloadBundle(uint32_t checksum, std::string const& levelPath, std::function<void(bool)> callback);
@@ -474,6 +477,9 @@ private:
   std::unordered_set<CustomJSONData::CustomEventData*> _catchUpAppliedCustomEvents;
   float _lastSongTime = -1.0f;
   float _lastKnownSongLength = -1.0f;
+  bool _recoveryMode = false;
+  std::vector<std::string> _recoverySkippedBlits;
+  std::chrono::steady_clock::time_point _lastRecoveryHeartbeat{};
   float _lastSyncSongTime = -1.0f;
   int _songTimeCacheFrame = -1;
   int _lastUpdateErrorFrame = -1000;

@@ -46,6 +46,11 @@ bool GetAudioLinkEnabled();
 // shadow* quality settings in it are ignored).
 bool GetMapRealtimeShadows();
 bool GetMapReflectionProbes();
+// Crash recovery (0.15.2): the setting, and whether the level now playing is
+// in recovery mode (caps the effect resolution at 50%).
+bool GetCrashRecovery();
+bool GetRecoveryModeActive();
+void SetRecoveryModeActive(bool active);
 // Flushes the Vivify logs after every line until `seconds` from now, so a
 // native crash in that window leaves its last step in the files (0.15.1).
 void FlushVivifyLogsEveryLineFor(int seconds);

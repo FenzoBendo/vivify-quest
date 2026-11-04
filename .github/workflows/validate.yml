@@ -156,6 +156,19 @@ jobs:
     - name: Zip extractor tests
       run: VIVIFY_ZIPTEST=/tmp/ziptest python3 tools/ziptest/run_tests.py
 
+  crash-recovery-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Build and run the crash recovery tests, with sanitizers
+      run: |
+        g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined \
+            -I include -o /tmp/recoverytest \
+            tools/recovery/main.cpp src/VivifyRecovery.cpp
+        /tmp/recoverytest
+
   global-log-tests:
     runs-on: ubuntu-latest
     steps:

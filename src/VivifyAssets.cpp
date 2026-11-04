@@ -992,7 +992,7 @@ void Runtime::SelectBundleForLevel() {
                    "disableCustomNoteVisuals={} disableAllBlits={} multipassRendering={} effectResolution={}% "
                    "sceneDepth={} prepareShaders={} geometryEffects={} offscreenCulling={} farCulling={}m crashGuard={} "
                    "pcBundleForMissingShaders={} replayRenderMode={} windowsBundleForThisMap={} mapRealtimeShadows={} "
-                   "mapReflectionProbes={}",
+                   "mapReflectionProbes={} crashRecovery={}",
                    BoolText(GetStandInShading()), BoolText(GetConvertPcBundlesOnDevice()),
                    BoolText(GetDisableCustomNoteVisuals()), BoolText(GetDisableAllBlits()),
                    BoolText(GetMultipassRenderingEnabled()), GetEffectResolutionPercent(),
@@ -1000,7 +1000,8 @@ void Runtime::SelectBundleForLevel() {
                    BoolText(GetDrawGeometryShaderEffects()), BoolText(GetOffscreenCulling()),
                    GetFarCullingDistance(), BoolText(GetCrashGuard()), BoolText(GetUsePcBundleForMissingShaders()),
                    BoolText(GetReplayRenderMode()), BoolText(GetWindowsBundleForMap(_selectedLevelPath)),
-                   BoolText(GetMapRealtimeShadows()), BoolText(GetMapReflectionProbes()));
+                   BoolText(GetMapRealtimeShadows()), BoolText(GetMapReflectionProbes()),
+                   BoolText(GetCrashRecovery()));
 
   std::string const androidBundlePath = JoinPath(_selectedLevelPath, std::string(kBundleFile));
   bool const androidExists = std::filesystem::exists(androidBundlePath);
