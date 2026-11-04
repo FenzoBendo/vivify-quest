@@ -133,7 +133,16 @@ namespace {
 //      compiler accepts: Through The Screen's depth-only AreaLit shader drew
 //      nothing (0.15.0). Also picks up 0.14.27's geometry pass-through renames,
 //      which went out without a version bump
-constexpr int kBundleConversionVersion = 20;
+//  21  single-pass instanced stereo through a geometry stage (0.15.1). The
+//      vertex stage of such a variant takes the eye from SV_InstanceID even
+//      though it writes no layer itself, so its instance ID now carries the
+//      view as it does for a layer-writing one; the geometry stage's layer
+//      write lands in a dummy under multiview instead of gl_Layer, which sent
+//      every primitive to the left eye (grass in one eye, objects doubled and
+//      offset between the eyes); and a geometry stage that reads the layer
+//      back is translated, with the eye handed over from the vertex stage
+//      (Through The Screen's ParticleScreen and Visualizer, 743 Aether)
+constexpr int kBundleConversionVersion = 21;
 
 // Whether Beat Saber's own shaders use STEREO_MULTIVIEW_ON: -1 not looked yet,
 // 0 no, 1 yes. Unity registers every keyword a loaded shader declares, so the
@@ -982,14 +991,16 @@ void Runtime::SelectBundleForLevel() {
   PaperLogger.info("Vivify settings for this level: standInShading={} convertPcBundlesOnDevice={} "
                    "disableCustomNoteVisuals={} disableAllBlits={} multipassRendering={} effectResolution={}% "
                    "sceneDepth={} prepareShaders={} geometryEffects={} offscreenCulling={} farCulling={}m crashGuard={} "
-                   "pcBundleForMissingShaders={} replayRenderMode={} windowsBundleForThisMap={}",
+                   "pcBundleForMissingShaders={} replayRenderMode={} windowsBundleForThisMap={} mapRealtimeShadows={} "
+                   "mapReflectionProbes={}",
                    BoolText(GetStandInShading()), BoolText(GetConvertPcBundlesOnDevice()),
                    BoolText(GetDisableCustomNoteVisuals()), BoolText(GetDisableAllBlits()),
                    BoolText(GetMultipassRenderingEnabled()), GetEffectResolutionPercent(),
                    BoolText(GetSceneDepthTexture()), BoolText(GetPrepareShadersBeforePlaying()),
                    BoolText(GetDrawGeometryShaderEffects()), BoolText(GetOffscreenCulling()),
                    GetFarCullingDistance(), BoolText(GetCrashGuard()), BoolText(GetUsePcBundleForMissingShaders()),
-                   BoolText(GetReplayRenderMode()), BoolText(GetWindowsBundleForMap(_selectedLevelPath)));
+                   BoolText(GetReplayRenderMode()), BoolText(GetWindowsBundleForMap(_selectedLevelPath)),
+                   BoolText(GetMapRealtimeShadows()), BoolText(GetMapReflectionProbes()));
 
   std::string const androidBundlePath = JoinPath(_selectedLevelPath, std::string(kBundleFile));
   bool const androidExists = std::filesystem::exists(androidBundlePath);

@@ -1294,6 +1294,7 @@ class GlslEmitter {
   std::string _stereoEyeIndexType;  // set when unity_StereoEyeIndex is fed from the view
   bool _writesRTArrayIndex = false;
   bool _stereoInstanced = false;
+  bool _emitViewIndexVarying = false;
   bool _declaredRuntimeInstancingSize = false;
   // Thread-group shared memory, one entry per declared block.
   struct SharedBlock {
@@ -1756,8 +1757,15 @@ bool GlslEmitter::BuildSignatures() {
       case kSvRenderTargetArrayIndex:
         // The eye index in PC single-pass instanced stereo. It is a built-in
         // here too -- gl_ViewID_OVR under multiview, eye 0 otherwise -- bound
-        // in the prologue.
+        // in the prologue. A geometry stage reads it too: the vertex stage's
+        // layer write is a dummy here, so under multiview the eye comes from
+        // the view, handed over by the vertex stage as vivify_ViewIndex
+        // (gl_ViewID_OVR is vertex and fragment only); single-view is eye 0.
         if (isPixel) continue;
+        if (isGeometry) {
+          if (_options.multiview) _declarations += "flat in highp int vivify_ViewIndex[];\n";
+          continue;
+        }
         Fail("input semantic '" + element.semanticName +
              "' is SV_RenderTargetArrayIndex outside a pixel program");
         return false;
@@ -1811,6 +1819,23 @@ bool GlslEmitter::BuildSignatures() {
           // prologue so the program's eye maths agrees with them.
           _writesRTArrayIndex = true;
           _stereoInstanced = true;
+          _declarations += "vec4 vivify_RTArrayIndexOut;\n";
+          if (_options.multiview) {
+            // For a geometry stage that reads the layer back as the eye:
+            // gl_ViewID_OVR does not exist there, so the view comes through
+            // this varying. A fragment stage never declares it, and an
+            // output nothing reads is legal and dropped at link (0.15.1).
+            _declarations += "flat out highp int vivify_ViewIndex;\n";
+            _emitViewIndexVarying = true;
+          }
+          continue;
+        }
+        if (_options.multiview) {
+          // A geometry stage under multiview: the views route the primitive,
+          // and a gl_Layer write would override them, putting every
+          // primitive in the layer the program computed -- one eye only
+          // (grass in the left eye, 0.15.1). The write lands in a dummy.
+          _writesRTArrayIndex = true;
           _declarations += "vec4 vivify_RTArrayIndexOut;\n";
           continue;
         }
@@ -3855,7 +3880,7 @@ GlslResult GlslEmitter::Run() {
   }
   if (_usedVertexID) addPrologue("ivec4 vVertexID = ivec4(gl_VertexID);");
   if (_usedInstanceID) {
-    if (_options.multiview && _stereoInstanced) {
+    if (_options.multiview && (_stereoInstanced || (_options.stereoInstancedProgram && _program.stage == Stage::Vertex))) {
       // One multiview draw per real instance stands in for SPI's two, so the
       // SPI numbering is rebuilt: eye in bit 0, real instance above it.
       addPrologue("ivec4 vInstanceID = ivec4(gl_InstanceID * 2 + int(gl_ViewID_OVR));");
@@ -3867,10 +3892,15 @@ GlslResult GlslEmitter::Run() {
     addPrologue("unity_StereoEyeIndex = " + _stereoEyeIndexType + "(gl_ViewID_OVR);");
   }
   if (_usedRTArrayIndexIn) {
-    addPrologue(_options.multiview
-                    ? "ivec4 vRTArrayIndex = ivec4(int(gl_ViewID_OVR));"
-                    : "ivec4 vRTArrayIndex = ivec4(0);");
+    if (!_options.multiview) {
+      addPrologue("ivec4 vRTArrayIndex = ivec4(0);");
+    } else if (_program.stage == Stage::Geometry) {
+      addPrologue("ivec4 vRTArrayIndex = ivec4(vivify_ViewIndex[0]);");
+    } else {
+      addPrologue("ivec4 vRTArrayIndex = ivec4(int(gl_ViewID_OVR));");
+    }
   }
+  if (_emitViewIndexVarying) addPrologue("vivify_ViewIndex = int(gl_ViewID_OVR);");
   if (_usedPrimitiveID) addPrologue("ivec4 vPrimitiveID = ivec4(gl_PrimitiveID);");
   if (_usedSampleIndex) addPrologue("ivec4 vSampleIndex = ivec4(gl_SampleID);");
   if (_usedGsInstanceID) {
@@ -3912,8 +3942,10 @@ GlslResult GlslEmitter::Run() {
 
   std::string source;
   source += "#version " + std::to_string(_version) + " es\n";
-  bool const needsViewId = _options.multiview && (_program.stage == Stage::Vertex || _usedRTArrayIndexIn ||
-                                                  !_stereoEyeIndexType.empty());
+  bool const needsViewId =
+      _options.multiview && (_program.stage == Stage::Vertex ||
+                             (_usedRTArrayIndexIn && _program.stage != Stage::Geometry) ||
+                             !_stereoEyeIndexType.empty());
   if (needsViewId) {
     source += "#extension GL_OVR_multiview2 : require\n";
     if (_program.stage == Stage::Vertex) source += "layout(num_views = 2) in;\n";

@@ -45,6 +45,10 @@ bool GetAudioLinkEnabled();
 // Whether SetRenderingSettings may turn on realtime shadows (off: the
 // shadow* quality settings in it are ignored).
 bool GetMapRealtimeShadows();
+bool GetMapReflectionProbes();
+// Flushes the Vivify logs after every line until `seconds` from now, so a
+// native crash in that window leaves its last step in the files (0.15.1).
+void FlushVivifyLogsEveryLineFor(int seconds);
 // Replay render mode (0.14.9): converted maps get single-screen programs only,
 // for replay and recording renderers. The headset draws none of them.
 bool GetReplayRenderMode();

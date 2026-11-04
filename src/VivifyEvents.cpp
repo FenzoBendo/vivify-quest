@@ -58,6 +58,10 @@ bool Runtime::EnsureBeatmapPrepared(GlobalNamespace::BeatmapCallbacksController*
 }
 
 void Runtime::PrepareBeatmap(CustomJSONData::CustomBeatmapData* beatmapData, float triggerTime) {
+  // Level start is where Get Your Wish and Burning Sands died in 0.15.0, and
+  // the lines buffered at the time were lost with the process. Every line of
+  // the next 20 s goes to disk as it is written (0.15.1).
+  FlushVivifyLogsEveryLineFor(20);
   ResetRuntime();
   SetSongPlaying(true);
   _visualProblems.clear();

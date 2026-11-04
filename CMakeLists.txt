@@ -33,7 +33,16 @@ add_compile_definitions(VERSION="${CMAKE_PROJECT_VERSION}")
 add_compile_definitions(VIVIFY_AUDIOLINK_BUNDLE="${CMAKE_CURRENT_SOURCE_DIR}/assets/audiolink/AudioLink.bundle")
 # The lite build (VIVIFY_LITE=1 in the environment, set by build.yml for the
 # lite QMOD) keeps 0.14.7's feature set; see include/main.hpp.
-if("$ENV{VIVIFY_LITE}" STREQUAL "1")
+#
+# The choice is cached in the build directory. `qpm s qmod` runs build.ps1,
+# so CMake configures again when the QMOD is packed; reading only the
+# environment then turned a lite build back into the full one, and every
+# "Vivify Lite" QMOD up to 0.15.0 held the full library (0.15.1).
+if(DEFINED ENV{VIVIFY_LITE})
+	set(VIVIFY_LITE "$ENV{VIVIFY_LITE}" CACHE STRING "1 for the lite build" FORCE)
+endif()
+if("${VIVIFY_LITE}" STREQUAL "1")
+	message(STATUS "Vivify: lite build")
 	add_compile_definitions(VIVIFY_LITE=1)
 endif()
 

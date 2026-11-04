@@ -11,6 +11,60 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-11-04
+
+### Fixed
+- **Grass and other geometry-shader effects drew in one eye only.** In a
+  single-pass stereo shader with a geometry stage (grass, fur, screen
+  particles), the vertex stage reads the eye from the instance ID and passes
+  it on, and the geometry stage writes the layer. The translator only rebuilt
+  the instance ID for vertex stages that write the layer themselves. So both
+  views got eye 0, and the geometry stage's `gl_Layer = 0` sent every
+  primitive to the left eye. That is the one-eye grass, and objects that sit
+  doubled and offset between the eyes. Now the instance ID carries the view
+  in these vertex stages too, and the geometry stage's layer write goes to a
+  dummy under multiview.
+- **Geometry shaders that read the eye back now translate.** They were
+  refused before, which left the shader on DirectX: nothing drew. This covers
+  [Through The Screen](https://beatsaver.com/maps/43a5d)'s ParticleScreen and
+  Visualizer, and 743 Aether's effects. Every program of Through The Screen,
+  Get Your Wish, Lifelike and YOU now compiles and links (vertex, geometry and
+  fragment stages together) under glslang.
+- **Get Your Wish and Burning Sands crashed at the start of the level.** Both
+  turn on realtime reflection probes at time 0 and spawn probes. A realtime
+  probe renders the scene six more times into a cubemap. Get Your Wish's
+  probe is 512 px HDR and re-renders every frame. Realtime reflection probes
+  are now off on Vivify maps by default (new advanced setting **Map
+  Reflection Probes**). Probes keep the skybox or a baked cubemap instead,
+  which should also remove Get Your Wish's oversized water reflections. This
+  is the strongest lead from the logs, not a confirmed cause. See Added for
+  what the next log will show if it still crashes.
+- **Vivify Lite was the full mod under another name.** `qpm s qmod` runs the
+  build again, and that second build configured CMake without `VIVIFY_LITE`,
+  so the full library replaced the lite one before packing. The lite setting
+  is now cached in the build directory and set on the packing step. CI also
+  fails if the lite QMOD's library lacks the lite marker.
+- **Settings text overlapping** ([#101](https://github.com/trail-b1az3r/vivify-quest/issues/101)).
+  Every text in the Vivify tab now reserves its own height. The status line
+  and the This Map row have a fixed height, wrap, and end in an ellipsis
+  instead of drawing over the controls below. Setting labels shrink to fit
+  beside their control.
+
+### Added
+- **Level start and level end are logged line by line.** For 20 seconds after
+  a Vivify level starts, and after it ends, every log line is flushed to disk
+  as it is written. A native crash in those windows (the Get Your Wish and
+  Burning Sands crashes, the crash on the way back to the menu) no longer
+  loses the last lines.
+- The per-level settings line also shows `mapRealtimeShadows` and
+  `mapReflectionProbes`.
+
+### Changed
+- **Converted maps are converted again** (conversion version 21) to pick up
+  the stereo fixes above.
+- Realtime reflection probes are off on Vivify maps unless **Map Reflection
+  Probes** is on. That also saves GPU time on every map that uses them.
+
 ## [0.15.0] - 2026-10-28
 
 ### Fixed

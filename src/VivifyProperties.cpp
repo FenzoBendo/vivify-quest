@@ -752,6 +752,13 @@ void Runtime::HandleSetRenderingSettings(CustomJSONData::CustomEventData* custom
         }
         continue;
       }
+      // Realtime reflection probes are opt-in too; see
+      // DisableRealtimeReflectionProbesForLevel.
+      if (categoryKey == "qualitySettings"sv && !GetMapReflectionProbes() && key == "realtimeReflectionProbes") {
+        PaperLogger.info("Vivify SetRenderingSettings: ignoring the map's realtimeReflectionProbes; turn on "
+                         "'Map Reflection Probes' to let maps enable them");
+        continue;
+      }
       ParseAndApplyRenderSetting(key, *categoryVal, it->value, settings, noDuration);
     }
   }
@@ -1148,7 +1155,12 @@ void Runtime::UpdateRenderSettingAnimations() {
 // the game's note bodies draw black, leaving only the arrows. Saved and put
 // back with the rest of the level's render settings.
 void Runtime::DisableRealtimeShadowsForLevel() {
-  if (GetMapRealtimeShadows() || !_selectedMapHasVivifyRequirement) return;
+  if (!_selectedMapHasVivifyRequirement) return;
+  DisableRealtimeReflectionProbesForLevel();
+  if (GetMapRealtimeShadows()) {
+    PaperLogger.info("Vivify: 'Map Realtime Shadows' is on; the game's shadow quality is left as it is");
+    return;
+  }
   // Only written once the old value is saved, so the level's end can put it back.
   SaveRenderSetting("shadows", RenderSettingKind::Int);
   for (auto const& saved : _savedRenderSettings) {
@@ -1161,6 +1173,32 @@ void Runtime::DisableRealtimeShadowsForLevel() {
     return;
   }
   PaperLogger.info("Vivify: could not read the game's shadow quality; realtime shadows left as they are");
+}
+
+// With "Map Reflection Probes" off (the default), realtime reflection probes
+// are off for the whole Vivify level (0.15.1). A realtime probe renders the
+// scene six more times into a cubemap -- every frame, for Get Your Wish's
+// 512 px HDR probe -- and both maps that crashed on their first frame in
+// 0.15.0 (Get Your Wish, Burning Sands) turn realtime probes on at time 0 and
+// spawn probes. Probes then keep whatever they last held (the skybox, or a
+// baked cubemap), which is also what fixes Get Your Wish's oversized water
+// reflections. Saved and put back with the level's other render settings.
+void Runtime::DisableRealtimeReflectionProbesForLevel() {
+  if (GetMapReflectionProbes()) {
+    PaperLogger.info("Vivify: 'Map Reflection Probes' is on; maps may turn realtime reflection probes on");
+    return;
+  }
+  SaveRenderSetting("realtimeReflectionProbes", RenderSettingKind::Bool);
+  for (auto const& saved : _savedRenderSettings) {
+    if (saved.name != "realtimeReflectionProbes" || !std::holds_alternative<bool>(saved.saved)) continue;
+    bool const before = std::get<bool>(saved.saved);
+    ApplyRenderSettingBool("realtimeReflectionProbes", false);
+    PaperLogger.info("Vivify: realtime reflection probes off for this level (the game had them {}; turn on "
+                     "'Map Reflection Probes' to let maps use them)",
+                     before ? "on" : "off");
+    return;
+  }
+  PaperLogger.info("Vivify: could not read realtimeReflectionProbes; left as it is");
 }
 
 void Runtime::RestoreRenderSettings() {

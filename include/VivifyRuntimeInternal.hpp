@@ -137,6 +137,7 @@ private:
   void SelectBundleForLevel();
   void RunScheduledVisualChecks();
   void DisableRealtimeShadowsForLevel();
+  void DisableRealtimeReflectionProbesForLevel();
   void RunVisualCheck(std::string_view when);
   void NoteVisualProblem(std::string problem);
   void DownloadBundle(uint32_t checksum, std::string const& levelPath, std::function<void(bool)> callback);

@@ -525,6 +525,9 @@ void Runtime::ResetRuntime(std::string_view reason) {
     PaperLogger.info("Vivify level end: {}", what);
     FlushVivifyLogs();
   };
+  // The return to the menu is the other crash window: every line for the
+  // next 20 s is flushed as written (0.15.1).
+  if (levelWasRunning) FlushVivifyLogsEveryLineFor(20);
   step(reason.empty() ? "resetting" : std::string(reason).c_str());
   SetSongPlaying(false);
   // Written before anything is torn down, while the numbers are still valid.

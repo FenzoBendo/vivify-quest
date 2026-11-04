@@ -21,6 +21,9 @@
 #include "bsml/shared/BSML-Lite/Creation/Text.hpp"
 #include "beatsaber-hook/shared/utils/typedefs-wrappers.hpp"
 #include "HMUI/CurvedTextMeshPro.hpp"
+#include "TMPro/TextMeshProUGUI.hpp"
+#include "TMPro/TextOverflowModes.hpp"
+#include "UnityEngine/UI/LayoutElement.hpp"
 #include "bsml/shared/BSML/Settings/BSMLSettings.hpp"
 #include "custom-types/shared/register.hpp"
 #include "scotland2/shared/modloader.h"
@@ -49,6 +52,7 @@ constexpr std::string_view kSubmitScoresConfigKey = "submitScoresOnVivifyMaps";
 constexpr std::string_view kTranslateShadersConfigKey = "translateShadersOnConversion";
 constexpr std::string_view kAudioLinkConfigKey = "audioLink";
 constexpr std::string_view kMapRealtimeShadowsConfigKey = "mapRealtimeShadows";
+constexpr std::string_view kMapReflectionProbesConfigKey = "mapReflectionProbes";
 constexpr std::string_view kReplayRenderModeConfigKey = "replayRenderMode";
 constexpr std::string_view kBlitFixConfigKey = "blitScreenTextureFix";
 // Renamed in 0.14.18 so every install starts with it off: 0.14.15 saved it
@@ -104,6 +108,7 @@ bool gSubmitScores = true;
 bool gTranslateShaders = true;
 bool gAudioLink = true;
 bool gMapRealtimeShadows = false;
+bool gMapReflectionProbes = false;
 bool gReplayRenderMode = false;
 bool gBlitFix = false;
 bool gPrepareShaders = false;
@@ -164,6 +169,7 @@ std::string WallClockText() {
 bool gVivifyLogSinkInstalled = false;
 bool gVivifyLogCapped = false;
 std::chrono::steady_clock::time_point gVivifyLogLastFlush{};
+std::atomic<int64_t> gVivifyFlushEveryLineUntil{0};  // steady_clock ticks
 
 void InstallVivifyFileLogSink() {
   if (gVivifyLogSinkInstalled) return;
@@ -192,10 +198,12 @@ void InstallVivifyFileLogSink() {
     if (!data.tag.has_value() || *data.tag != std::string_view(MOD_ID)) return;
     std::lock_guard<std::mutex> lock(gVivifyLogMutex);
     bool const important = data.level >= Paper::LogLevel::WRN;
+    auto const now = std::chrono::steady_clock::now();
+    bool const everyLine = now.time_since_epoch().count() < gVivifyFlushEveryLineUntil.load();
     if (gVivifyGlobalLog.IsOpen()) {
       gVivifyGlobalLog.Write(WallClockText() + " [" + std::string(Paper::format_as(data.level)) + "] " +
                              std::string(data.message));
-      if (important) gVivifyGlobalLog.Flush();
+      if (important || everyLine) gVivifyGlobalLog.Flush();
     }
     if (!gVivifyLogFile.is_open() || gVivifyLogCapped) return;
 
@@ -214,8 +222,7 @@ void InstallVivifyFileLogSink() {
     // be noisy. Warnings and errors still flush immediately, because those are
     // the lines that matter if the game stops before the buffer is written;
     // ordinary lines are flushed at most a few times a second.
-    auto const now = std::chrono::steady_clock::now();
-    if (important || now - gVivifyLogLastFlush > std::chrono::milliseconds(250)) {
+    if (important || everyLine || now - gVivifyLogLastFlush > std::chrono::milliseconds(250)) {
       gVivifyLogFile.flush();
       gVivifyGlobalLog.Flush();
       gVivifyLogLastFlush = now;
@@ -251,6 +258,12 @@ void InstallVivifyFileLogSink() {
 // Writes everything logged so far to the session and global logs now. For the
 // steps around a level's end (0.15.0): a native crash there loses whatever is
 // still buffered, and the last step that reached the file is the clue.
+void FlushVivifyLogsEveryLineFor(int seconds) {
+  auto const until = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
+  gVivifyFlushEveryLineUntil.store(until.time_since_epoch().count());
+  FlushVivifyLogs();
+}
+
 void FlushVivifyLogs() {
   std::lock_guard<std::mutex> lock(gVivifyLogMutex);
   if (gVivifyLogFile.is_open()) gVivifyLogFile.flush();
@@ -397,6 +410,40 @@ void SetIntConfigValue(std::string_view key, int newValue, int& value) {
 // types.
 SafePtrUnity<HMUI::CurvedTextMeshPro> gConvertStatusText;
 
+// Settings layout (0.15.1). Two things overlapped in the Vivify tab:
+//  - a setting's label is laid out from the left edge with no width limit,
+//    so a long one ran under its toggle or increment buttons. Each label now
+//    shrinks to fit the room it has (TMP auto-size, down to 60%);
+//  - a text whose content changes after the menu is built (conversion
+//    status, the This Map row) kept the height of its first content, and a
+//    longer message then drew over the widgets below it. Those texts get a
+//    fixed height for a set number of lines, wrap, and end in an ellipsis.
+void FitSettingLabels(UnityEngine::Component* widget) {
+  if (widget == nullptr) return;
+  auto gameObject = widget->get_gameObject();
+  if (!gameObject) return;
+  auto texts = gameObject->GetComponentsInChildren<TMPro::TextMeshProUGUI*>(true);
+  for (auto* text : texts) {
+    if (text == nullptr) continue;
+    float const size = text->get_fontSize();
+    text->set_enableWordWrapping(false);
+    text->set_fontSizeMax(size);
+    text->set_fontSizeMin(size * 0.6f);
+    text->set_enableAutoSizing(true);
+  }
+}
+
+void FixTextHeight(HMUI::CurvedTextMeshPro* text, int lines, float lineHeight = 4.5f) {
+  if (text == nullptr) return;
+  text->set_enableWordWrapping(true);
+  text->set_overflowMode(TMPro::TextOverflowModes::Ellipsis);
+  auto* layout = text->get_gameObject()->GetComponent<UnityEngine::UI::LayoutElement*>();
+  if (layout == nullptr) layout = text->get_gameObject()->AddComponent<UnityEngine::UI::LayoutElement*>();
+  float const height = static_cast<float>(lines) * lineHeight;
+  layout->set_minHeight(height);
+  layout->set_preferredHeight(height);
+}
+
 void SetConvertStatusText(std::string const& text) {
   if (!gConvertStatusText) return;
   gConvertStatusText->set_text(StringW(text));
@@ -466,7 +513,9 @@ void RegisterModSettings() {
         // Built as a StringW from a std::string, the way every other text in
         // this menu is: the std::u16string this used to assemble by hand is
         // what took the menu down.
-        BSML::Lite::CreateText(parent, StringW(std::string("Vivify ") + VERSION + (kLiteBuild ? " (lite)" : "")));
+        FixTextHeight(
+            BSML::Lite::CreateText(parent, StringW(std::string("Vivify ") + VERSION + (kLiteBuild ? " (lite)" : ""))),
+            1);
 
         // 0.14.29: the everyday settings come first and everything else sits
         // behind "Show Advanced Settings", which hides or shows those widgets
@@ -474,7 +523,9 @@ void RegisterModSettings() {
         // are short enough to fit beside their control. Controls that exist
         // only in the full build are skipped in lite, not shown disabled.
         auto header = [&](std::string const& title) {
-          return BSML::Lite::CreateText(parent, StringW("<size=110%><b>" + title + "</b></size>"));
+          auto* text = BSML::Lite::CreateText(parent, StringW("<size=110%><b>" + title + "</b></size>"));
+          FixTextHeight(text, 1, 6.0f);
+          return text;
         };
         // Registers a widget as advanced: hidden until the button below shows it.
         auto advanced = [](auto* widget) {
@@ -485,12 +536,22 @@ void RegisterModSettings() {
           gameObject->SetActive(gShowAdvanced);
         };
         auto toggle = [&](StringW label, bool value, std::function<void(bool)> onChange) {
-          return BSML::Lite::CreateToggle(parent, label, value, std::move(onChange));
+          auto* created = BSML::Lite::CreateToggle(parent, label, value, std::move(onChange));
+          FitSettingLabels(reinterpret_cast<UnityEngine::Component*>(created));
+          return created;
+        };
+        auto increment = [&](StringW label, float step, float value, float min, float max,
+                             std::function<void(float)> onChange) {
+          auto* created = BSML::Lite::CreateIncrementSetting(parent, label, 0, step, value, true, true, min, max,
+                                                             std::move(onChange));
+          FitSettingLabels(reinterpret_cast<UnityEngine::Component*>(created));
+          return created;
         };
 
         if constexpr (!kLiteBuild) {
           header("This Map");
           gThisMapText = BSML::Lite::CreateText(parent, u"");
+          FixTextHeight(gThisMapText.ptr(), 1);
           gThisMapButton = BSML::Lite::CreateUIButton(parent, u"Windows Bundle: off", []() {
             std::string const path = Vivify::SelectedVivifyMapPath();
             if (path.empty()) {
@@ -511,9 +572,8 @@ void RegisterModSettings() {
           // Renders map post-process effects below eye resolution and scales
           // them up. Full-screen raymarchers cost per pixel: 50% is a quarter of
           // the work. Steps of 5% (0.14.26).
-          BSML::Lite::CreateIncrementSetting(
-              parent, u"Effect Resolution %", 0, 5.0f, static_cast<float>(gEffectResolution), true, true, 25.0f,
-              100.0f, [](float value) {
+          increment(u"Effect Resolution %", 5.0f, static_cast<float>(gEffectResolution), 25.0f, 100.0f,
+              [](float value) {
                 int const percent = std::clamp(static_cast<int>(value + 0.5f), 25, 100);
                 SetIntConfigValue(kEffectResolutionConfigKey, percent, gEffectResolution);
               });
@@ -521,9 +581,8 @@ void RegisterModSettings() {
                  [](bool value) { SetBoolConfigValue(kOffscreenCullingConfigKey, value, gOffscreenCulling); });
           // Draws nothing farther than this from the player; 0 is off. Steps of
           // 10 m (0.14.26).
-          BSML::Lite::CreateIncrementSetting(
-              parent, u"Far Culling (m, 0 = off)", 0, 10.0f, static_cast<float>(gFarCullingDistance), true, true,
-              0.0f, 1000.0f, [](float value) {
+          increment(u"Far Culling (m, 0 = off)", 10.0f, static_cast<float>(gFarCullingDistance), 0.0f, 1000.0f,
+              [](float value) {
                 int const metres = std::clamp(static_cast<int>(value + 0.5f), 0, 1000);
                 SetIntConfigValue(kFarCullingConfigKey, metres, gFarCullingDistance);
               });
@@ -548,6 +607,7 @@ void RegisterModSettings() {
         // disabled, so it can never be selected into. These convert every
         // installed map in one pass instead.
         gConvertStatusText = BSML::Lite::CreateText(parent, u"Idle");
+        FixTextHeight(gConvertStatusText.ptr(), 3);
         if (Vivify::IsBulkPcBundleConversionRunning()) SetConvertStatusText("Converting...");
         // One progress callback for both buttons; they differ only in whether an
         // already-cached conversion is reused or thrown away first.
@@ -572,9 +632,10 @@ void RegisterModSettings() {
                [](bool value) { SetBoolConfigValue(kVivifyDebugLoggingConfigKey, value, gVivifyDebugLogging); });
         // paperlog output is not reachable without adb, so Vivify writes its own
         // plain-text files next to its data, all in this one folder.
-        BSML::Lite::CreateText(parent, StringW("<size=70%>Logs in " + std::string(kVivifyLogDir) +
-                                               ":\nVivifySession.txt, VivifyReport.txt" +
-                                               (kLiteBuild ? "" : ", vivify_global.txt") + "</size>"));
+        FixTextHeight(BSML::Lite::CreateText(parent, StringW("<size=70%>Logs in " + std::string(kVivifyLogDir) +
+                                                             ":\nVivifySession.txt, VivifyReport.txt" +
+                                                             (kLiteBuild ? "" : ", vivify_global.txt") + "</size>")),
+                      2, 3.5f);
 
         gAdvancedButton = BSML::Lite::CreateUIButton(parent, u"Show Advanced Settings", []() {
           gShowAdvanced = !gShowAdvanced;
@@ -599,6 +660,11 @@ void RegisterModSettings() {
                         [](bool value) { SetBoolConfigValue(kSceneDepthConfigKey, value, gSceneDepth); }));
         advanced(toggle(u"Map Realtime Shadows", GetMapRealtimeShadows(), [](bool value) {
           SetBoolConfigValue(kMapRealtimeShadowsConfigKey, value, gMapRealtimeShadows);
+        }));
+        // Off by default: realtime probes re-render the scene into a cubemap,
+        // and the two maps that crashed at their start in 0.15.0 used them.
+        advanced(toggle(u"Map Reflection Probes", GetMapReflectionProbes(), [](bool value) {
+          SetBoolConfigValue(kMapReflectionProbesConfigKey, value, gMapReflectionProbes);
         }));
         // Experimental: geometry-stage effects are drawn without that stage
         // instead of as grey stand-ins. Changing it reconverts affected maps.
@@ -684,8 +750,7 @@ void RegisterModSettings() {
           }));
         }
         // Spacers, so the last line of the menu is not clipped by the scroll view.
-        BSML::Lite::CreateText(parent, u" ");
-        BSML::Lite::CreateText(parent, u" ");
+        FixTextHeight(BSML::Lite::CreateText(parent, u" "), 2);
         } catch (std::exception const& e) {
           PaperLogger.error("Vivify settings menu: construction threw ({}); the controls after the "
                             "failure are missing", e.what());
@@ -773,6 +838,10 @@ bool GetTranslateShadersOnConversion() {
 
 bool GetAudioLinkEnabled() {
   return gAudioLink;
+}
+
+bool GetMapReflectionProbes() {
+  return gMapReflectionProbes;
 }
 
 bool GetMapRealtimeShadows() {
@@ -949,6 +1018,7 @@ void EnsureConfigDefaults() {
   needsWrite |= EnsureBoolConfigValue(kTranslateShadersConfigKey, true, gTranslateShaders);
   needsWrite |= EnsureBoolConfigValue(kAudioLinkConfigKey, true, gAudioLink);
   needsWrite |= EnsureBoolConfigValue(kMapRealtimeShadowsConfigKey, false, gMapRealtimeShadows);
+  needsWrite |= EnsureBoolConfigValue(kMapReflectionProbesConfigKey, false, gMapReflectionProbes);
   needsWrite |= EnsureBoolConfigValue(kReplayRenderModeConfigKey, false, gReplayRenderMode);
   needsWrite |= EnsureBoolConfigValue(kBlitFixConfigKey, false, gBlitFix);
   needsWrite |= EnsureBoolConfigValue(kPrepareShadersConfigKey, false, gPrepareShaders);
