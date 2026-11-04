@@ -46,6 +46,19 @@ if("${VIVIFY_LITE}" STREQUAL "1")
 	add_compile_definitions(VIVIFY_LITE=1)
 endif()
 
+# The game version built for. Unset is 1.40.8_7379, what qpm.json and the
+# vendored extern/ describe. VIVIFY_GAME_TARGET=1.45.3 is set by
+# .github/workflows/build-1.45.3.yml after scripts/use-game-target.py has
+# pointed qpm.json at that game's dependencies; code that differs between the
+# two tests VIVIFY_GAME_1_45_3. Cached for the same reason as VIVIFY_LITE.
+if(DEFINED ENV{VIVIFY_GAME_TARGET})
+	set(VIVIFY_GAME_TARGET "$ENV{VIVIFY_GAME_TARGET}" CACHE STRING "Beat Saber version built for" FORCE)
+endif()
+if("${VIVIFY_GAME_TARGET}" STREQUAL "1.45.3")
+	message(STATUS "Vivify: building for Beat Saber 1.45.3")
+	add_compile_definitions(VIVIFY_GAME_1_45_3=1)
+endif()
+
 set(COMPILE_ID ${CMAKE_PROJECT_NAME})
 
 # Recursively get all src files

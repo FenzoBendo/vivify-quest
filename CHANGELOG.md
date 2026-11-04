@@ -70,6 +70,17 @@ conversion cache version, and cached conversions are redone automatically.
   as it is written. A native crash in those windows (the Get Your Wish and
   Burning Sands crashes, the crash on the way back to the menu) no longer
   loses the last lines.
+- **A Beat Saber 1.45.3_30054 build, ready for when its dependencies
+  ship.** A new workflow, `Build Quest Mod (Beat Saber 1.45.3)`, builds the
+  same source for 1.45.3. `scripts/use-game-target.py` with
+  `targets/1.45.3.json` points `qpm.json` and `mod.json` at that game's
+  libraries. Vivify needs CustomJSONData and Tracks, and neither has a 1.45.3
+  release yet (Tracks, Noodle Extensions and Chroma only have unreleased
+  `v1.45.3` branches). Until they do, the workflow names what is missing in
+  its summary and stops without building; this is not a failure. Once they
+  are released it builds full and Lite QMODs named `...-bs1.45.3.qmod`, and
+  any game changes Vivify has to follow show up as compile errors.
+  Code specific to 1.45.3 can test `VIVIFY_GAME_1_45_3`.
 - The per-level settings line also shows `mapRealtimeShadows` and
   `mapReflectionProbes`.
 - **Mirror diagnostics** for reflections that turn with the head instead of
