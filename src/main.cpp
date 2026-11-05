@@ -1,5 +1,6 @@
 #include "main.hpp"
 #include "VivifyGlobalLog.hpp"
+#include <algorithm>
 #include <ctime>
 #include <cerrno>
 #include <cstring>
@@ -24,6 +25,7 @@
 #include "HMUI/CurvedTextMeshPro.hpp"
 #include "TMPro/TextMeshProUGUI.hpp"
 #include "TMPro/TextOverflowModes.hpp"
+#include "UnityEngine/RectTransform.hpp"
 #include "UnityEngine/UI/LayoutElement.hpp"
 #include "bsml/shared/BSML/Settings/BSMLSettings.hpp"
 #include "custom-types/shared/register.hpp"
@@ -32,6 +34,8 @@
 #include <vector>
 
 static modloader::ModInfo modInfo{MOD_ID, VERSION, 0};
+// A rebuild of the same version, shown beside it in the menu and the logs.
+constexpr char const* kBuildLabel = " build 2";
 
 // Defined below, outside this namespace; the settings reset button re-applies it.
 void EnsureConfigDefaults();
@@ -219,13 +223,13 @@ void InstallVivifyFileLogSink() {
   gVivifyLogFile.open(std::string(kVivifyLogPath), std::ios::out | std::ios::trunc);
   int const sessionOpenErrno = errno;
   if (gVivifyLogFile.is_open()) {
-    gVivifyLogFile << "=== Vivify " << VERSION << (kLiteBuild ? " (lite)" : "") << " session log, started "
+    gVivifyLogFile << "=== Vivify " << VERSION << kBuildLabel << (kLiteBuild ? " (lite)" : "") << " session log, started "
                    << WallClockText() << " ===\n";
     gVivifyLogFile.flush();
   }
   gVivifyLogLastFlush = std::chrono::steady_clock::now();
   try {
-    gVivifyGlobalLog.Open("=== Vivify " + std::string(VERSION) + (kLiteBuild ? " (lite)" : "") + " session started " +
+    gVivifyGlobalLog.Open("=== Vivify " + std::string(VERSION) + kBuildLabel + (kLiteBuild ? " (lite)" : "") + " session started " +
                           WallClockText() + " ===");
   } catch (...) {
   }
@@ -446,14 +450,22 @@ void SetIntConfigValue(std::string_view key, int newValue, int& value) {
 // types.
 SafePtrUnity<HMUI::CurvedTextMeshPro> gConvertStatusText;
 
-// Settings layout (0.15.1). Two things overlapped in the Vivify tab:
+// Settings layout (0.15.1, corrected in 0.15.3 build 2). Two things overlapped
+// in the Vivify tab:
 //  - a setting's label is laid out from the left edge with no width limit,
 //    so a long one ran under its toggle or increment buttons. Each label now
 //    shrinks to fit the room it has (TMP auto-size, down to 60%);
 //  - a text whose content changes after the menu is built (conversion
 //    status, the This Map row) kept the height of its first content, and a
-//    longer message then drew over the widgets below it. Those texts get a
-//    fixed height for a set number of lines, wrap, and end in an ellipsis.
+//    longer message then drew over the widgets below it.
+//
+// BSML's settings list does not control its children's heights
+// (childControlHeight is off), so a LayoutElement height is ignored there and
+// a BSML text keeps the 0 x 0 rect it is created with. 0.15.1 gave those texts
+// word wrap and an ellipsis on top of that zero-height rect, and TMP then cut
+// every line away: the conversion progress, the This Map hint and the logs
+// line showed nothing at all. The rect itself now gets the height, and text
+// that still does not fit is drawn rather than hidden.
 void FitSettingLabels(UnityEngine::Component* widget) {
   if (widget == nullptr) return;
   auto gameObject = widget->get_gameObject();
@@ -471,18 +483,36 @@ void FitSettingLabels(UnityEngine::Component* widget) {
 
 void FixTextHeight(HMUI::CurvedTextMeshPro* text, int lines, float lineHeight = 4.5f) {
   if (text == nullptr) return;
+  float const height = static_cast<float>(lines) * lineHeight;
   text->set_enableWordWrapping(true);
-  text->set_overflowMode(TMPro::TextOverflowModes::Ellipsis);
+  text->set_overflowMode(TMPro::TextOverflowModes::Overflow);
+  auto* rect = reinterpret_cast<UnityEngine::RectTransform*>(text->get_transform().unsafePtr());
+  auto size = rect->get_sizeDelta();
+  size.y = height;
+  rect->set_sizeDelta(size);
   auto* layout = text->get_gameObject()->GetComponent<UnityEngine::UI::LayoutElement*>();
   if (layout == nullptr) layout = text->get_gameObject()->AddComponent<UnityEngine::UI::LayoutElement*>();
-  float const height = static_cast<float>(lines) * lineHeight;
   layout->set_minHeight(height);
   layout->set_preferredHeight(height);
 }
 
+// The latest conversion status, kept so the label shows it again whenever the
+// menu is opened, not only while it was open when the progress arrived.
+std::string gConvertStatus = "Idle";
+
 void SetConvertStatusText(std::string const& text) {
+  gConvertStatus = text;
   if (!gConvertStatusText) return;
   gConvertStatusText->set_text(StringW(text));
+}
+
+// A bar of 30 ticks, filled to done/total, in plain ASCII so the menu font has it.
+std::string ProgressBarText(int done, int total) {
+  constexpr int kTicks = 30;
+  int filled = total > 0 ? std::clamp(done * kTicks / total, 0, kTicks) : 0;
+  int const percent = total > 0 ? std::clamp(done * 100 / total, 0, 100) : 0;
+  return "<color=#5fd35f>" + std::string(static_cast<size_t>(filled), '|') + "</color><color=#555555>" +
+         std::string(static_cast<size_t>(kTicks - filled), '|') + "</color> " + std::to_string(percent) + "%";
 }
 
 // Settings menu state (0.14.29): the advanced widgets the "Show Advanced
@@ -500,12 +530,22 @@ void RefreshThisMapRow() {
   name = std::filesystem::path(name).filename().string();
   bool const enabled = !path.empty() && GetWindowsBundleForMap(path);
   if (gThisMapText) {
-    gThisMapText->set_text(StringW(path.empty() ? std::string("<size=80%>Select a Vivify map to choose its bundle</size>")
-                                                : "<size=80%>" + name + "</size>"));
+    std::string line;
+    if (path.empty()) {
+      line = "<size=80%><color=#ffcc66>No Vivify map selected: pick one in the song list (and a difficulty "
+             "that needs Vivify), then come back here</color></size>";
+    } else {
+      line = "<size=80%>" + name + "\n" +
+             (enabled ? "<color=#5fd35f>Using its Windows (PC) bundle, converted on the headset</color>"
+                      : "Using its Quest bundle when it has one") +
+             "</size>";
+    }
+    gThisMapText->set_text(StringW(line));
   }
   if (gThisMapButton) {
-    BSML::Lite::SetButtonText(gThisMapButton.ptr(),
-                              StringW(std::string("Use Windows Bundle: ") + (enabled ? "on" : "off")));
+    BSML::Lite::SetButtonText(gThisMapButton.ptr(), StringW(path.empty() ? std::string("Use Windows Bundle: -")
+                                                                         : std::string("Use Windows Bundle: ") +
+                                                                               (enabled ? "on" : "off")));
   }
 }
 
@@ -517,6 +557,7 @@ void RegisterModSettings() {
         // on every activation, not only when the menu is built.
         if (!firstActivation) {
           RefreshThisMapRow();
+          SetConvertStatusText(gConvertStatus);
           return;
         }
         gSettingsMenuBuilding = true;
@@ -550,7 +591,7 @@ void RegisterModSettings() {
         // this menu is: the std::u16string this used to assemble by hand is
         // what took the menu down.
         FixTextHeight(
-            BSML::Lite::CreateText(parent, StringW(std::string("Vivify ") + VERSION + (kLiteBuild ? " (lite)" : ""))),
+            BSML::Lite::CreateText(parent, StringW(std::string("Vivify ") + VERSION + kBuildLabel + (kLiteBuild ? " (lite)" : ""))),
             1);
 
         // 0.14.29: the everyday settings come first and everything else sits
@@ -587,8 +628,8 @@ void RegisterModSettings() {
         if constexpr (!kLiteBuild) {
           header("This Map");
           gThisMapText = BSML::Lite::CreateText(parent, u"");
-          FixTextHeight(gThisMapText.ptr(), 1);
-          gThisMapButton = BSML::Lite::CreateUIButton(parent, u"Windows Bundle: off", []() {
+          FixTextHeight(gThisMapText.ptr(), 2);
+          gThisMapButton = BSML::Lite::CreateUIButton(parent, u"Use Windows Bundle: -", []() {
             std::string const path = Vivify::SelectedVivifyMapPath();
             if (path.empty()) {
               RefreshThisMapRow();
@@ -649,7 +690,8 @@ void RegisterModSettings() {
         // installed map in one pass instead.
         gConvertStatusText = BSML::Lite::CreateText(parent, u"Idle");
         FixTextHeight(gConvertStatusText.ptr(), 3);
-        if (Vivify::IsBulkPcBundleConversionRunning()) SetConvertStatusText("Converting...");
+        SetConvertStatusText(Vivify::IsBulkPcBundleConversionRunning() && gConvertStatus == "Idle" ? "Converting..."
+                                                                                                    : gConvertStatus);
         // One progress callback for both buttons; they differ only in whether an
         // already-cached conversion is reused or thrown away first.
         static auto const startConversion = [](bool force) {
@@ -661,22 +703,16 @@ void RegisterModSettings() {
                   SetConvertStatusText(progress.status);
                   return;
                 }
-                SetConvertStatusText(std::to_string(progress.levelsScanned) + "/" +
-                                     std::to_string(progress.levelsTotal) + "  " + progress.status);
+                SetConvertStatusText(ProgressBarText(progress.levelsScanned, progress.levelsTotal) + "\n" +
+                                     std::to_string(progress.levelsScanned) + "/" +
+                                     std::to_string(progress.levelsTotal) + "  <size=80%>" + progress.status +
+                                     "</size>");
               },
               force);
         };
         BSML::Lite::CreateUIButton(parent, u"Convert All PC Bundles", []() { startConversion(false); });
 
         header("Diagnostics");
-        if constexpr (!kLiteBuild) {
-          // The Vivify Quest test map (testmap/ in the repository): a map made
-          // to exercise what a port has to get right (0.15.2).
-          BSML::Lite::CreateUIButton(parent, u"Test Vivify", []() {
-            SetConvertStatusText("Installing the test map...");
-            Vivify::InstallTestMap([](std::string const& text) { SetConvertStatusText(text); });
-          });
-        }
         toggle(u"Debug Logging", GetVivifyDebugLogging(),
                [](bool value) { SetBoolConfigValue(kVivifyDebugLoggingConfigKey, value, gVivifyDebugLogging); });
         // paperlog output is not reachable without adb, so Vivify writes its own
