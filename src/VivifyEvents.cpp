@@ -64,6 +64,7 @@ void Runtime::PrepareBeatmap(CustomJSONData::CustomBeatmapData* beatmapData, flo
   // the lines buffered at the time were lost with the process. Every line of
   // the next 20 s goes to disk as it is written (0.15.1).
   FlushVivifyLogsEveryLineFor(20);
+  ResetAutoEffectResolution();
   ResetRuntime();
   SetSongPlaying(true);
   _visualProblems.clear();

@@ -143,6 +143,7 @@ void Runtime::Update() {
       _lastGameplayFrame = {};
       return;
     }
+    if (!_pauseMenuActive) ReportGameplayFrame(UnityEngine::Time::get_unscaledDeltaTime());
     // Crash recovery's sign of life, every 5 s of play (0.15.2).
     if (frameStart - _lastRecoveryHeartbeat > std::chrono::seconds(5)) {
       _lastRecoveryHeartbeat = frameStart;

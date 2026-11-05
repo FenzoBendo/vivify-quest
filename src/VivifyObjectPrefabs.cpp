@@ -80,11 +80,14 @@ int ReduceReflectionProbes(UnityEngine::GameObject* root) {
   for (int i = 0; i < probes.size(); i++) {
     auto* probe = probes[i];
     if (!IsManagedAlive(probe)) continue;
-    if (probe->get_mode() != UnityEngine::Rendering::ReflectionProbeMode::Realtime) continue;
+    // By value: the enum's static constants are not exported for linking.
+    constexpr int32_t kRealtime = 1;         // ReflectionProbeMode.Realtime
+    constexpr int32_t kIndividualFaces = 1;  // ReflectionProbeTimeSlicingMode.IndividualFaces
+    if (probe->get_mode().value__ != kRealtime) continue;
     int const before = probe->get_resolution();
     if (before > 128) probe->set_resolution(128);
     probe->set_hdr(false);
-    probe->set_timeSlicingMode(UnityEngine::Rendering::ReflectionProbeTimeSlicingMode::IndividualFaces);
+    probe->set_timeSlicingMode(UnityEngine::Rendering::ReflectionProbeTimeSlicingMode(kIndividualFaces));
     changed++;
     auto probeObject = probe->get_gameObject();
     PaperLogger.info("Vivify reflection probe '{}' reduced: {} px -> {} px, no HDR, one face a frame",

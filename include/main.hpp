@@ -48,6 +48,10 @@ bool GetMapRealtimeShadows();
 bool GetMapReflectionProbes();
 bool GetFullReflectionProbes();
 bool GetSingleViewMapCameras();
+// Auto Effect Resolution (0.15.3): fed every gameplay frame's duration, reset
+// when a level starts.
+void ReportGameplayFrame(float seconds);
+void ResetAutoEffectResolution();
 // Crash recovery (0.15.2): the setting, and whether the level now playing is
 // in recovery mode (caps the effect resolution at 50%).
 bool GetCrashRecovery();

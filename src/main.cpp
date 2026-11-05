@@ -61,6 +61,7 @@ constexpr std::string_view kMapRealtimeShadowsConfigKey = "mapRealtimeShadows";
 constexpr std::string_view kMapReflectionProbesConfigKey = "mapReflectionProbesV2";
 constexpr std::string_view kFullReflectionProbesConfigKey = "fullReflectionProbes";
 constexpr std::string_view kSingleViewMapCamerasConfigKey = "singleViewMapCameras";
+constexpr std::string_view kAutoEffectResolutionConfigKey = "autoEffectResolution";
 constexpr std::string_view kCrashRecoveryConfigKey = "crashRecovery";
 constexpr std::string_view kReplayRenderModeConfigKey = "replayRenderMode";
 constexpr std::string_view kBlitFixConfigKey = "blitScreenTextureFix";
@@ -125,6 +126,23 @@ bool gMapRealtimeShadows = false;
 bool gMapReflectionProbes = true;
 bool gFullReflectionProbes = false;
 bool gSingleViewMapCameras = true;
+bool gAutoEffectResolution = true;
+
+// Auto Effect Resolution (0.15.3). Final Slaughter (#100) runs a three-pass
+// full-screen effect at full resolution on top of a depth pass for most of
+// the song; the Quest falls behind, its frame synthesis fills in, and notes
+// look like they stop and slide back and forth. When frames stay slow against
+// the best this level has managed, map effects step down 10% at a time (to
+// 40% at least) and back up once there is room again. Frame times are only
+// compared with each other, so 72, 90 and 120 Hz all work.
+std::atomic<int> gAutoEffectPercent{100};
+struct AutoEffectState {
+  double average = 0.0;      // exponential moving average of frame time, s
+  double best = 0.0;         // fastest average this level
+  double slowFor = 0.0;      // how long the average has been well above best
+  double fastFor = 0.0;      // how long it has been close to best
+  double elapsed = 0.0;
+} gAutoEffect;
 bool gCrashRecovery = true;
 std::atomic<bool> gRecoveryModeActive{false};
 bool gReplayRenderMode = false;
@@ -595,6 +613,11 @@ void RegisterModSettings() {
                 int const percent = std::clamp(static_cast<int>(value + 0.5f), 25, 100);
                 SetIntConfigValue(kEffectResolutionConfigKey, percent, gEffectResolution);
               });
+          // Steps map effects down while a map runs slow, back up when there
+          // is room (0.15.3).
+          toggle(u"Auto Effect Resolution", gAutoEffectResolution, [](bool value) {
+            SetBoolConfigValue(kAutoEffectResolutionConfigKey, value, gAutoEffectResolution);
+          });
           toggle(u"Offscreen Culling (can hide objects)", gOffscreenCulling,
                  [](bool value) { SetBoolConfigValue(kOffscreenCullingConfigKey, value, gOffscreenCulling); });
           // Draws nothing farther than this from the player; 0 is off. Steps of
@@ -1059,9 +1082,50 @@ int GetFarCullingDistance() {
   return kLiteBuild ? 0 : std::clamp(gFarCullingDistance, 0, 1000);
 }
 
+void ResetAutoEffectResolution() {
+  gAutoEffect = AutoEffectState{};
+  gAutoEffectPercent.store(100);
+}
+
+void ReportGameplayFrame(float seconds) {
+  if (kLiteBuild || !gAutoEffectResolution) return;
+  if (!(seconds > 0.0f) || seconds > 0.5f) return;  // a pause or a stall, not pacing
+  auto& s = gAutoEffect;
+  s.elapsed += seconds;
+  s.average = s.average == 0.0 ? seconds : s.average * 0.95 + seconds * 0.05;
+  if (s.elapsed < 2.0) return;  // let the average settle after the level starts
+  if (s.best == 0.0 || s.average < s.best) s.best = s.average;
+  int percent = gAutoEffectPercent.load();
+  if (s.average > s.best * 1.35) {
+    s.slowFor += seconds;
+    s.fastFor = 0.0;
+    if (s.slowFor >= 1.5 && percent > 40) {
+      percent = std::max(40, percent - 10);
+      gAutoEffectPercent.store(percent);
+      s.slowFor = 0.0;
+      PaperLogger.info("Vivify Auto Effect Resolution: frames at {:.1f} ms against a best of {:.1f} ms; map "
+                       "effects down to {}%", s.average * 1000.0, s.best * 1000.0, percent);
+    }
+  } else if (s.average < s.best * 1.15) {
+    s.fastFor += seconds;
+    s.slowFor = 0.0;
+    if (s.fastFor >= 6.0 && percent < 100) {
+      percent = std::min(100, percent + 10);
+      gAutoEffectPercent.store(percent);
+      s.fastFor = 0.0;
+      PaperLogger.info("Vivify Auto Effect Resolution: frames back to {:.1f} ms; map effects up to {}%",
+                       s.average * 1000.0, percent);
+    }
+  } else {
+    s.slowFor = 0.0;
+    s.fastFor = 0.0;
+  }
+}
+
 int GetEffectResolutionPercent() {
   if (kLiteBuild) return 100;
-  int const percent = std::clamp(gEffectResolution, 25, 100);
+  int percent = std::clamp(gEffectResolution, 25, 100);
+  if (gAutoEffectResolution) percent = std::min(percent, gAutoEffectPercent.load());
   // Crash recovery mode: half resolution or less (0.15.2).
   return GetRecoveryModeActive() ? std::min(percent, 50) : percent;
 }
@@ -1099,6 +1163,7 @@ void EnsureConfigDefaults() {
   needsWrite |= EnsureBoolConfigValue(kMapReflectionProbesConfigKey, true, gMapReflectionProbes);
   needsWrite |= EnsureBoolConfigValue(kFullReflectionProbesConfigKey, false, gFullReflectionProbes);
   needsWrite |= EnsureBoolConfigValue(kSingleViewMapCamerasConfigKey, true, gSingleViewMapCameras);
+  needsWrite |= EnsureBoolConfigValue(kAutoEffectResolutionConfigKey, true, gAutoEffectResolution);
   needsWrite |= EnsureBoolConfigValue(kCrashRecoveryConfigKey, true, gCrashRecovery);
   needsWrite |= EnsureBoolConfigValue(kReplayRenderModeConfigKey, false, gReplayRenderMode);
   needsWrite |= EnsureBoolConfigValue(kBlitFixConfigKey, false, gBlitFix);

@@ -47,6 +47,15 @@ Fixes from the newer reports on
   - new advanced setting: **Single-View Map Cameras** (on by default). Not in
     Lite.
 
+- **Auto Effect Resolution** (Performance, on by default). Final Slaughter
+  ([#100](https://github.com/trail-b1az3r/vivify-quest/issues/100)) runs a
+  three-pass full-screen effect at full resolution on top of a depth pass for
+  most of the song. The Quest falls behind, its frame synthesis fills the
+  gaps, and notes look like they stop and slide back and forth. When frames
+  stay well above the best this level has managed, map effects step down 10%
+  at a time (to 40% at least), and back up when there is room again.
+- Fixed the 0.15.3 build failing to link (reflection probe enum constants).
+
 ### Not fixed yet
 - Get Your Wish's mist blocking the doorway at 0:55, and a map ("scaredTHIN"?)
   that blinds until paused: these need the map name or a log.
