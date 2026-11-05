@@ -50,6 +50,8 @@ public:
   void OnBehaviourDestroyed(RuntimeBehaviour* behaviour);
   // Advances an in-flight blit companion load; once a frame, menu included.
   void PollBlitCompanion();
+  void PollBlitCompanionPrefabs();
+  void FinishBlitCompanion(bool current);
   // Advances "Prepare Shaders Before Playing" (0.14.15): compiles a converted
   // bundle's shaders in the menu, a few materials a frame. Once a frame.
   void PollShaderWarmup();
@@ -162,7 +164,7 @@ private:
   // shaders, for blits into single-screen textures, which the multiview
   // programs of the main conversion cannot draw into.
   void PrepareBlitCompanion(std::string const& levelPath, std::string const& pcBundlePath);
-  void LoadBlitCompanion(std::string const& levelPath, std::string const& companionPath);
+  void LoadBlitCompanion(std::string const& levelPath, std::string const& companionPath, bool wantsPrefabs);
   void ClearBlitCompanion();
   // The material a blit into `destination` should draw with: `material`, or
   // for a single-screen destination a copy of it on the single-view shader.
@@ -583,6 +585,25 @@ private:
   UnityEngine::AssetBundle* _blitCompanionBundle = nullptr;
   std::string _blitCompanionLoadingLevel;
   std::string _blitCompanionLoadingPath;
+  // Single-view shaders for a map's own texture cameras (0.15.3): the
+  // companion's prefabs are loaded too when the map is known to have such
+  // cameras, so every shader its prefabs use has a single-view twin.
+  bool _blitCompanionWantsPrefabs = false;
+  bool _blitCompanionLoadingWantsPrefabs = false;
+  SafePtr<UnityEngine::AssetBundleRequest> _blitCompanionPrefabs;
+  std::string _companionPcBundlePath;
+  // Materials of spawned map objects whose shader has a single-view twin,
+  // swapped while a texture camera renders (SingleViewCameraShaders).
+  std::unordered_map<UnityEngine::Material*, std::pair<UnityEngine::Shader*, UnityEngine::Shader*>> _singleViewSwaps;
+  bool _singleViewSwapped = false;
+
+public:
+  void NoteTextureCameras(int count);
+  void RegisterSingleViewMaterials(UnityEngine::GameObject* root);
+  void BeginSingleViewCamera();
+  void EndSingleViewCamera();
+
+private:
   std::string _graftLevelPath;
   int _graftGeneration = 0;
   int _graftApplied = 0;

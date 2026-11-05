@@ -11,6 +11,46 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.3] - 2026-11-05
+
+Fixes from the newer reports on
+[#102](https://github.com/trail-b1az3r/vivify-quest/issues/102).
+
+### Fixed
+- **Map objects that never appeared (Get Your Wish's lyrics and more).**
+  Offscreen Culling froze an animator while everything it moved was out of
+  view. Maps often animate things *into* view, from scale 0 or from a
+  renderer that starts disabled; such an object was never seen, so it never
+  moved. The tester found the lyrics and other elements only with culling off.
+  Offscreen Culling is now off by default, under a new setting key so
+  everyone's saved "on" resets once, and labelled "(can hide objects)".
+- **Get Your Wish's water reflected only the notes.** Its water reflects the
+  map through a realtime reflection probe, and 0.15.1 had turned map probes
+  off to stop the start-up crash. Probes are allowed again by default, in a
+  reduced form: at most 128 px, no HDR, one cube face per frame instead of all
+  six (about 1/70 of the cost of that map's 512 px HDR probe). **Full
+  Reflection Probes** turns the reduction off. Crash recovery mode still turns
+  probes off for a map that went down.
+- **Through The Screen: no sabers on the TV, a flat white floor, a black
+  finale screen.** All three are drawn by the map's own cameras, which render
+  into textures one view at a time. A converted map's shaders, on 2019-built
+  bundles like this one, only hold two-eye (multiview) programs, which draw
+  nothing into a single texture. The floor's lighting comes from such a camera
+  (`LightMeshCam`). Now:
+  - such a camera draws the map with single-view twins of its shaders, taken
+    from the map's single-view companion build and swapped in only while that
+    camera renders;
+  - the first time a map's prefabs bring texture cameras, Vivify leaves a
+    marker beside the converted map; from the next selection on, the
+    companion is prepared with the prefabs' shaders included, in the menu, and
+    the prefabs are let go straight after;
+  - new advanced setting: **Single-View Map Cameras** (on by default). Not in
+    Lite.
+
+### Not fixed yet
+- Get Your Wish's mist blocking the doorway at 0:55, and a map ("scaredTHIN"?)
+  that blinds until paused: these need the map name or a log.
+
 ## [0.15.2] - 2026-11-04
 
 ### Added

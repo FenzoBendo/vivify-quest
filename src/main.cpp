@@ -53,7 +53,14 @@ constexpr std::string_view kSubmitScoresConfigKey = "submitScoresOnVivifyMaps";
 constexpr std::string_view kTranslateShadersConfigKey = "translateShadersOnConversion";
 constexpr std::string_view kAudioLinkConfigKey = "audioLink";
 constexpr std::string_view kMapRealtimeShadowsConfigKey = "mapRealtimeShadows";
-constexpr std::string_view kMapReflectionProbesConfigKey = "mapReflectionProbes";
+// On by default again since 0.15.3, reduced (see VivifyObjectPrefabs.cpp's
+// ReduceReflectionProbes) unless "Full Reflection Probes" is on. A new key, so
+// the saved "off" of 0.15.1-0.15.2 does not stick: Get Your Wish's water
+// reflects the map through its probe, and with probes off it reflected only
+// the notes (#102).
+constexpr std::string_view kMapReflectionProbesConfigKey = "mapReflectionProbesV2";
+constexpr std::string_view kFullReflectionProbesConfigKey = "fullReflectionProbes";
+constexpr std::string_view kSingleViewMapCamerasConfigKey = "singleViewMapCameras";
 constexpr std::string_view kCrashRecoveryConfigKey = "crashRecovery";
 constexpr std::string_view kReplayRenderModeConfigKey = "replayRenderMode";
 constexpr std::string_view kBlitFixConfigKey = "blitScreenTextureFix";
@@ -64,7 +71,12 @@ constexpr std::string_view kGeometryEffectsConfigKey = "drawGeometryShaderEffect
 constexpr std::string_view kPcShadersForEmptyConfigKey = "pcShadersForEmptyQuestShaders";
 constexpr std::string_view kStandInShaderNameConfigKey = "standInShaderName";
 constexpr std::string_view kEffectResolutionConfigKey = "effectResolutionPercent";
-constexpr std::string_view kOffscreenCullingConfigKey = "offscreenCulling";
+// Offscreen Culling is off by default since 0.15.3, under a new key so that
+// everyone's saved "on" from earlier builds is reset once: an animator frozen
+// while its objects are out of view never brings into view an object it
+// animates from scale 0 or from a disabled renderer. Get Your Wish's lyrics
+// and other elements only appeared with culling off (#102).
+constexpr std::string_view kOffscreenCullingConfigKey = "offscreenCullingV2";
 constexpr std::string_view kCrashGuardConfigKey = "crashGuard";
 constexpr std::string_view kPcBundleForMissingShadersConfigKey = "pcBundleForMissingShaders";
 constexpr std::string_view kFarCullingConfigKey = "farCullingDistance";
@@ -110,7 +122,9 @@ bool gSubmitScores = true;
 bool gTranslateShaders = true;
 bool gAudioLink = true;
 bool gMapRealtimeShadows = false;
-bool gMapReflectionProbes = false;
+bool gMapReflectionProbes = true;
+bool gFullReflectionProbes = false;
+bool gSingleViewMapCameras = true;
 bool gCrashRecovery = true;
 std::atomic<bool> gRecoveryModeActive{false};
 bool gReplayRenderMode = false;
@@ -131,7 +145,7 @@ std::string gStandInShaderName;
 int gEffectResolution = 100;
 // Animators in a map's prefabs skip updating while none of their renderers is
 // on screen (0.14.23).
-bool gOffscreenCulling = true;
+bool gOffscreenCulling = false;
 // Two loads of a converted bundle that never finish put it into the
 // untranslated (grey) fallback; off, that never happens (0.14.24).
 bool gCrashGuard = true;
@@ -581,7 +595,7 @@ void RegisterModSettings() {
                 int const percent = std::clamp(static_cast<int>(value + 0.5f), 25, 100);
                 SetIntConfigValue(kEffectResolutionConfigKey, percent, gEffectResolution);
               });
-          toggle(u"Offscreen Culling", gOffscreenCulling,
+          toggle(u"Offscreen Culling (can hide objects)", gOffscreenCulling,
                  [](bool value) { SetBoolConfigValue(kOffscreenCullingConfigKey, value, gOffscreenCulling); });
           // Draws nothing farther than this from the player; 0 is off. Steps of
           // 10 m (0.14.26).
@@ -673,11 +687,22 @@ void RegisterModSettings() {
         advanced(toggle(u"Map Realtime Shadows", GetMapRealtimeShadows(), [](bool value) {
           SetBoolConfigValue(kMapRealtimeShadowsConfigKey, value, gMapRealtimeShadows);
         }));
-        // Off by default: realtime probes re-render the scene into a cubemap,
-        // and the two maps that crashed at their start in 0.15.0 used them.
+        // Realtime probes re-render the scene into a cubemap; on by default
+        // in a reduced form (128 px, one face a frame, no HDR), full quality
+        // only on request. A map that went down plays without them.
         advanced(toggle(u"Map Reflection Probes", GetMapReflectionProbes(), [](bool value) {
           SetBoolConfigValue(kMapReflectionProbesConfigKey, value, gMapReflectionProbes);
         }));
+        advanced(toggle(u"Full Reflection Probes", GetFullReflectionProbes(), [](bool value) {
+          SetBoolConfigValue(kFullReflectionProbesConfigKey, value, gFullReflectionProbes);
+        }));
+        if constexpr (!kLiteBuild) {
+          // A map's own cameras that render into textures (TV screens,
+          // portals, light meshes) draw with single-view shaders (0.15.3).
+          advanced(toggle(u"Single-View Map Cameras", gSingleViewMapCameras, [](bool value) {
+            SetBoolConfigValue(kSingleViewMapCamerasConfigKey, value, gSingleViewMapCameras);
+          }));
+        }
         if constexpr (!kLiteBuild) {
           // A map that crashed or froze last time plays in recovery mode
           // next time: less memory, and without the effect that was
@@ -874,6 +899,14 @@ bool GetMapReflectionProbes() {
   return gMapReflectionProbes;
 }
 
+bool GetFullReflectionProbes() {
+  return gFullReflectionProbes;
+}
+
+bool GetSingleViewMapCameras() {
+  return !kLiteBuild && gSingleViewMapCameras;
+}
+
 bool GetCrashRecovery() {
   return !kLiteBuild && gCrashRecovery;
 }
@@ -1063,7 +1096,9 @@ void EnsureConfigDefaults() {
   needsWrite |= EnsureBoolConfigValue(kTranslateShadersConfigKey, true, gTranslateShaders);
   needsWrite |= EnsureBoolConfigValue(kAudioLinkConfigKey, true, gAudioLink);
   needsWrite |= EnsureBoolConfigValue(kMapRealtimeShadowsConfigKey, false, gMapRealtimeShadows);
-  needsWrite |= EnsureBoolConfigValue(kMapReflectionProbesConfigKey, false, gMapReflectionProbes);
+  needsWrite |= EnsureBoolConfigValue(kMapReflectionProbesConfigKey, true, gMapReflectionProbes);
+  needsWrite |= EnsureBoolConfigValue(kFullReflectionProbesConfigKey, false, gFullReflectionProbes);
+  needsWrite |= EnsureBoolConfigValue(kSingleViewMapCamerasConfigKey, true, gSingleViewMapCameras);
   needsWrite |= EnsureBoolConfigValue(kCrashRecoveryConfigKey, true, gCrashRecovery);
   needsWrite |= EnsureBoolConfigValue(kReplayRenderModeConfigKey, false, gReplayRenderMode);
   needsWrite |= EnsureBoolConfigValue(kBlitFixConfigKey, false, gBlitFix);
@@ -1073,7 +1108,7 @@ void EnsureConfigDefaults() {
   needsWrite |= EnsureStringConfigValue(kStandInShaderNameConfigKey, std::string(),
                                         gStandInShaderName);
   needsWrite |= EnsureIntConfigValue(kEffectResolutionConfigKey, 100, 25, 100, gEffectResolution);
-  needsWrite |= EnsureBoolConfigValue(kOffscreenCullingConfigKey, true, gOffscreenCulling);
+  needsWrite |= EnsureBoolConfigValue(kOffscreenCullingConfigKey, false, gOffscreenCulling);
   needsWrite |= EnsureBoolConfigValue(kCrashGuardConfigKey, true, gCrashGuard);
   needsWrite |= EnsureBoolConfigValue(kPcBundleForMissingShadersConfigKey, false, gPcBundleForMissingShaders);
   needsWrite |= EnsureIntConfigValue(kFarCullingConfigKey, 0, 0, 1000, gFarCullingDistance);

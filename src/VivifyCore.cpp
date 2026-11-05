@@ -543,6 +543,8 @@ void Runtime::ResetRuntime(std::string_view reason) {
   }
   _recoveryMode = false;
   _recoverySkippedBlits.clear();
+  EndSingleViewCamera();
+  _singleViewSwaps.clear();
   SetRecoveryModeActive(false);
   step(reason.empty() ? "resetting" : std::string(reason).c_str());
   SetSongPlaying(false);

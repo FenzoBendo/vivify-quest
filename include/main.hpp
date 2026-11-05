@@ -46,6 +46,8 @@ bool GetAudioLinkEnabled();
 // shadow* quality settings in it are ignored).
 bool GetMapRealtimeShadows();
 bool GetMapReflectionProbes();
+bool GetFullReflectionProbes();
+bool GetSingleViewMapCameras();
 // Crash recovery (0.15.2): the setting, and whether the level now playing is
 // in recovery mode (caps the effect resolution at 50%).
 bool GetCrashRecovery();

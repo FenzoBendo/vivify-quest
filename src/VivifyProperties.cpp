@@ -760,7 +760,8 @@ void Runtime::HandleSetRenderingSettings(CustomJSONData::CustomEventData* custom
       }
       // Realtime reflection probes are opt-in too; see
       // DisableRealtimeReflectionProbesForLevel.
-      if (categoryKey == "qualitySettings"sv && !GetMapReflectionProbes() && key == "realtimeReflectionProbes") {
+      if (categoryKey == "qualitySettings"sv && (!GetMapReflectionProbes() || _recoveryMode) &&
+          key == "realtimeReflectionProbes") {
         PaperLogger.info("Vivify SetRenderingSettings: ignoring the map's realtimeReflectionProbes; turn on "
                          "'Map Reflection Probes' to let maps enable them");
         continue;
@@ -1189,9 +1190,14 @@ void Runtime::DisableRealtimeShadowsForLevel() {
 // spawn probes. Probes then keep whatever they last held (the skybox, or a
 // baked cubemap), which is also what fixes Get Your Wish's oversized water
 // reflections. Saved and put back with the level's other render settings.
+//
+// 0.15.3: maps may use them again by default, reduced at spawn
+// (ReduceReflectionProbes) unless "Full Reflection Probes" is on; off still
+// with the setting off, and always in crash recovery mode.
 void Runtime::DisableRealtimeReflectionProbesForLevel() {
-  if (GetMapReflectionProbes()) {
-    PaperLogger.info("Vivify: 'Map Reflection Probes' is on; maps may turn realtime reflection probes on");
+  if (GetMapReflectionProbes() && !_recoveryMode) {
+    PaperLogger.info("Vivify: maps may turn realtime reflection probes on ({})",
+                     GetFullReflectionProbes() ? "full quality" : "reduced: 128 px, one face a frame, no HDR");
     return;
   }
   SaveRenderSetting("realtimeReflectionProbes", RenderSettingKind::Bool);
@@ -1199,9 +1205,8 @@ void Runtime::DisableRealtimeReflectionProbesForLevel() {
     if (saved.name != "realtimeReflectionProbes" || !std::holds_alternative<bool>(saved.saved)) continue;
     bool const before = std::get<bool>(saved.saved);
     ApplyRenderSettingBool("realtimeReflectionProbes", false);
-    PaperLogger.info("Vivify: realtime reflection probes off for this level (the game had them {}; turn on "
-                     "'Map Reflection Probes' to let maps use them)",
-                     before ? "on" : "off");
+    PaperLogger.info("Vivify: realtime reflection probes off for this level ({}; the game had them {})",
+                     _recoveryMode ? "crash recovery mode" : "'Map Reflection Probes' is off", before ? "on" : "off");
     return;
   }
   PaperLogger.info("Vivify: could not read realtimeReflectionProbes; left as it is");

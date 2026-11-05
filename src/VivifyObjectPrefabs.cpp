@@ -9,6 +9,7 @@
 #include "UnityEngine/Camera.hpp"
 #include "UnityEngine/RenderTexture.hpp"
 #include "UnityEngine/StereoTargetEyeMask.hpp"
+#include "UnityEngine/ReflectionProbe.hpp"
 
 namespace Vivify {
 namespace {
@@ -50,14 +51,45 @@ int MakeTextureCamerasSingleView(UnityEngine::GameObject* root) {
     if (!IsManagedAlive(camera)) continue;
     auto* target = camera->get_targetTexture().unsafePtr();
     if (!IsManagedAlive(target)) continue;
+    // Single-view twins of the map's shaders while it renders (0.15.3).
+    auto cameraGameObject = camera->get_gameObject();
+    if (IsManagedAlive(cameraGameObject.unsafePtr()) &&
+        cameraGameObject->GetComponent<Vivify::SingleViewCameraShaders*>() == nullptr) {
+      cameraGameObject->AddComponent<Vivify::SingleViewCameraShaders*>();
+    }
+    changed++;
     if (camera->get_stereoTargetEye() == UnityEngine::StereoTargetEyeMask::None) continue;
     camera->set_stereoTargetEye(UnityEngine::StereoTargetEyeMask::None);
-    changed++;
     auto cameraObject = camera->get_gameObject();
     PaperLogger.info("Vivify prefab camera '{}' renders into texture '{}' ({}x{}): set to no eye, so it draws "
                      "there instead of into the headset view",
                      IsManagedAlive(cameraObject.unsafePtr()) ? ToStdString(cameraObject->get_name()) : "?",
                      ToStdString(target->get_name()), target->get_width(), target->get_height());
+  }
+  return changed;
+}
+
+// Realtime reflection probes in a map's prefab, reduced unless "Full
+// Reflection Probes" is on (0.15.3): at most 128 px, no HDR, and one cube face
+// a frame instead of all six. Get Your Wish's water probe is 512 px HDR and
+// re-renders every frame; reduced, it costs about a seventieth as much.
+int ReduceReflectionProbes(UnityEngine::GameObject* root) {
+  if (GetFullReflectionProbes() || !IsManagedAlive(root)) return 0;
+  int changed = 0;
+  auto probes = root->GetComponentsInChildren<UnityEngine::ReflectionProbe*>(true);
+  for (int i = 0; i < probes.size(); i++) {
+    auto* probe = probes[i];
+    if (!IsManagedAlive(probe)) continue;
+    if (probe->get_mode() != UnityEngine::Rendering::ReflectionProbeMode::Realtime) continue;
+    int const before = probe->get_resolution();
+    if (before > 128) probe->set_resolution(128);
+    probe->set_hdr(false);
+    probe->set_timeSlicingMode(UnityEngine::Rendering::ReflectionProbeTimeSlicingMode::IndividualFaces);
+    changed++;
+    auto probeObject = probe->get_gameObject();
+    PaperLogger.info("Vivify reflection probe '{}' reduced: {} px -> {} px, no HDR, one face a frame",
+                     IsManagedAlive(probeObject.unsafePtr()) ? ToStdString(probeObject->get_name()) : "?", before,
+                     std::min(before, 128));
   }
   return changed;
 }
@@ -730,7 +762,9 @@ void Runtime::InstantiatePrefab(CustomJSONData::CustomEventData* customEventData
     if (videoPlayer != nullptr) videoPlayers.emplace_back(videoPlayer);
   }
 
-  MakeTextureCamerasSingleView(instance);
+  NoteTextureCameras(MakeTextureCamerasSingleView(instance));
+  RegisterSingleViewMaterials(instance);
+  ReduceReflectionProbes(instance);
   int const culledAnimators = CullOffscreenAnimators(instance);
   VIVIFY_DEBUG("Vivify InstantiatePrefab spawned: id='{}' asset='{}' tracks={} animators={} offscreenCulled={}",
                storageId, data.asset, data.tracks.size(), animators.size(), culledAnimators);
@@ -975,7 +1009,9 @@ void Runtime::InstantiateReplacementPrefab(AssignedPrefabInfo const& info,
     animator->Update(0.01f);
   }
 
-  MakeTextureCamerasSingleView(spawned);
+  NoteTextureCameras(MakeTextureCamerasSingleView(spawned));
+  RegisterSingleViewMaterials(spawned);
+  ReduceReflectionProbes(spawned);
   CullOffscreenAnimators(spawned);
   RegisterSyncedObject(spawned, CurrentSongTime());
   replacement.spawnedObjects.emplace_back(spawned);
