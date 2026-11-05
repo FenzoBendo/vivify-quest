@@ -735,6 +735,82 @@ check("the pass-through input keeps the vertex stage's name",
 check("the pass-through output takes a distinct name", "out vec4 gs_TEXCOORD0;" in source, source)
 check("the output is written under its new name", "gs_TEXCOORD0.xyzw = vs_TEXCOORD0[1].xyzw;" in source, source)
 
+# 0.15.1: single-pass instanced stereo through a geometry stage (grass, fur,
+# screen particles). The vertex stage takes the eye from SV_InstanceID but
+# hands it on as an ordinary varying, and the geometry stage writes the layer.
+def instance_id_vertex():
+    isgn = m.signature_chunk([{"name": "POSITION", "index": 0, "register": 0},
+                              {"name": "SV_InstanceID", "index": 0, "sv": 8, "register": 1,
+                               "component_type": 1, "mask": 1, "rw_mask": 1}], b"ISGN")
+    osgn = m.signature_chunk([{"name": "SV_Position", "index": 0, "sv": 1, "register": 0},
+                              {"name": "TEXCOORD", "index": 0, "register": 1}], b"OSGN")
+    code = m.insn(MOV, m.dest(m.OPERAND_OUTPUT, 0), m._operand(m.OPERAND_INPUT, [0], swizzle=(X, Y, Z, W)))
+    code += m.insn(MOV, m.dest(m.OPERAND_OUTPUT, 1, 0x1), m._operand(m.OPERAND_INPUT, [1], swizzle=(X, X, X, X)))
+    code += m.insn(RET)
+    return m.container([isgn, osgn, m.shex_chunk([code], stage=1)])
+
+
+proc, fields, _, source = run("glsl-mv-spi", instance_id_vertex())
+check("an SPI vertex stage without a layer write translates", fields.get("ok") == "1", fields.get("error", ""))
+check("its instance ID carries the view as the eye",
+      "ivec4 vInstanceID = ivec4(gl_InstanceID * 2 + int(gl_ViewID_OVR));" in source, source)
+proc, fields, _, source = run("glsl-mv", instance_id_vertex())
+check("a plain multiview vertex stage keeps gl_InstanceID",
+      "ivec4 vInstanceID = ivec4(gl_InstanceID);" in source, source)
+
+
+def geometry_layer(read_layer):
+    inputs = [{"name": "TEXCOORD", "index": 0, "register": 0}]
+    if read_layer:
+        inputs.append({"name": "SV_RenderTargetArrayIndex", "index": 0, "sv": 4, "register": 1,
+                       "component_type": 1, "mask": 1, "rw_mask": 1})
+    isgn = m.signature_chunk(inputs, b"ISGN")
+    osgn = m.signature_chunk([{"name": "COLOR", "index": 0, "register": 0},
+                              {"name": "SV_RenderTargetArrayIndex", "index": 0, "sv": 4, "register": 1,
+                               "component_type": 1, "mask": 1, "rw_mask": 0xE}], b"OSGN")
+    code = m.insn(DCL_GS_INPUT_PRIMITIVE, controls=3)
+    code += m.insn(DCL_MAXOUT, extra=[3])
+    code += m.insn(DCL_GS_OUTPUT_TOPOLOGY, controls=5)
+    code += m.insn(MOV, m.dest(m.OPERAND_OUTPUT, 0),
+                   m._operand(m.OPERAND_INPUT, [1, 0], swizzle=(X, Y, Z, W)))
+    layer_source = (m._operand(m.OPERAND_INPUT, [0, 1], swizzle=(X, X, X, X)) if read_layer
+                    else m.imm_int(0))
+    code += m.insn(MOV, m.dest(m.OPERAND_OUTPUT, 1, 0x1), layer_source)
+    code += m.insn(EMIT)
+    code += m.insn(RET)
+    return m.container([isgn, osgn, m.shex_chunk([code], stage=2)])
+
+
+proc, fields, _, source = run("glsl-mv", geometry_layer(False))
+check("a multiview geometry stage writing the layer translates", fields.get("ok") == "1", fields.get("error", ""))
+check("its layer write goes to a dummy, not gl_Layer", "gl_Layer" not in source and
+      "vivify_RTArrayIndexOut" in source, source)
+proc, fields, _, source = run("glsl", geometry_layer(False))
+check("a single-view geometry stage still writes gl_Layer", "gl_Layer" in source, source)
+proc, fields, _, source = run("glsl-mv", geometry_layer(True))
+check("a geometry stage reading the layer translates", fields.get("ok") == "1", fields.get("error", ""))
+check("it reads the layer from the vertex stage's view index",
+      "ivec4 vRTArrayIndex = ivec4(vivify_ViewIndex[0]);" in source and
+      "flat in highp int vivify_ViewIndex[];" in source, source)
+check("and does not use gl_ViewID_OVR, which geometry stages lack", "gl_ViewID_OVR" not in source, source)
+
+
+def layer_writing_vertex():
+    isgn = m.signature_chunk([{"name": "POSITION", "index": 0, "register": 0}], b"ISGN")
+    osgn = m.signature_chunk([{"name": "SV_Position", "index": 0, "sv": 1, "register": 0},
+                              {"name": "SV_RenderTargetArrayIndex", "index": 0, "sv": 4, "register": 1,
+                               "component_type": 1, "mask": 1, "rw_mask": 0xE}], b"OSGN")
+    code = m.insn(MOV, m.dest(m.OPERAND_OUTPUT, 0), m._operand(m.OPERAND_INPUT, [0], swizzle=(X, Y, Z, W)))
+    code += m.insn(MOV, m.dest(m.OPERAND_OUTPUT, 1, 0x1), m.imm_int(1))
+    code += m.insn(RET)
+    return m.container([isgn, osgn, m.shex_chunk([code], stage=1)])
+
+
+proc, fields, _, source = run("glsl-mv", layer_writing_vertex())
+check("a layer-writing multiview vertex stage hands the view on",
+      "flat out highp int vivify_ViewIndex;" in source and
+      "vivify_ViewIndex = int(gl_ViewID_OVR);" in source, source)
+
 # ---------------------------------------------------------------------------
 # Unity's program header in front of the container
 # ---------------------------------------------------------------------------

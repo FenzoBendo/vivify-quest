@@ -1,4 +1,6 @@
 #include "VivifyRuntimeInternal.hpp"
+#include "VivifyRecovery.hpp"
+#include <ctime>
 #include "VivifyComponents.hpp"
 
 namespace Vivify {
@@ -58,6 +60,11 @@ bool Runtime::EnsureBeatmapPrepared(GlobalNamespace::BeatmapCallbacksController*
 }
 
 void Runtime::PrepareBeatmap(CustomJSONData::CustomBeatmapData* beatmapData, float triggerTime) {
+  // Level start is where Get Your Wish and Burning Sands died in 0.15.0, and
+  // the lines buffered at the time were lost with the process. Every line of
+  // the next 20 s goes to disk as it is written (0.15.1).
+  FlushVivifyLogsEveryLineFor(20);
+  ResetAutoEffectResolution();
   ResetRuntime();
   SetSongPlaying(true);
   _visualProblems.clear();
@@ -77,6 +84,9 @@ void Runtime::PrepareBeatmap(CustomJSONData::CustomBeatmapData* beatmapData, flo
                beatmapData->v2orEarlier, beatmapData->customEventDatas.size(),
                triggerTime, _beatmapAD != nullptr);
   LoadMainBundle();
+  Recovery::LevelStarted(_selectedLevelPath, static_cast<int64_t>(std::time(nullptr)));
+  _lastRecoveryHeartbeat = std::chrono::steady_clock::now();
+  EnterRecoveryModeIfNeeded();
   DisableRealtimeShadowsForLevel();
   PreloadInstantiatePrefabs();
   ApplyMissedVivifyEvents(triggerTime);

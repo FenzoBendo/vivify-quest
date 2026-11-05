@@ -12,6 +12,7 @@ DEFINE_TYPE(Vivify, FollowedSaberTrail);
 DEFINE_TYPE(Vivify, RuntimeBehaviour);
 DEFINE_TYPE(Vivify, MultipassKeywordController);
 DEFINE_TYPE(Vivify, CameraApplier);
+DEFINE_TYPE(Vivify, SingleViewCameraShaders);
 DEFINE_TYPE(Vivify, CullingCameraController);
 DEFINE_TYPE(Vivify, SecondaryCameraController);
 
@@ -464,6 +465,7 @@ void RuntimeBehaviour::Update() {
   }
   try {
     Runtime::Instance().PollBlitCompanion();
+    Runtime::Instance().PollBlitCompanionPrefabs();
   } catch (...) {
     static int reported = 0;
     if (reported++ < 3) PaperLogger.error("Vivify Blit companion update threw");
@@ -473,6 +475,18 @@ void RuntimeBehaviour::Update() {
 
 void RuntimeBehaviour::OnDestroy() {
   Runtime::Instance().OnBehaviourDestroyed(this);
+}
+
+void SingleViewCameraShaders::OnPreRender() {
+  if (GetSingleViewMapCameras()) Runtime::Instance().BeginSingleViewCamera();
+}
+
+void SingleViewCameraShaders::OnPostRender() {
+  Runtime::Instance().EndSingleViewCamera();
+}
+
+void SingleViewCameraShaders::OnDisable() {
+  Runtime::Instance().EndSingleViewCamera();
 }
 
 void CameraApplier::OnPreCull() {

@@ -6,6 +6,12 @@
 #include "UnityEngine/Canvas.hpp"
 #include <exception>
 #include "UnityEngine/AnimatorCullingMode.hpp"
+#include "UnityEngine/Camera.hpp"
+#include "UnityEngine/RenderTexture.hpp"
+#include "UnityEngine/StereoTargetEyeMask.hpp"
+#include "UnityEngine/ReflectionProbe.hpp"
+#include "UnityEngine/Rendering/ReflectionProbeMode.hpp"
+#include "UnityEngine/Rendering/ReflectionProbeTimeSlicingMode.hpp"
 
 namespace Vivify {
 namespace {
@@ -28,6 +34,69 @@ int CullOffscreenAnimators(UnityEngine::GameObject* root) {
     culled++;
   }
   return culled;
+}
+
+// Cameras a map's prefab brings to render into a texture (0.15.1): Through
+// The Screen's in-world screens, mirrors, shadow and light-mesh cameras. In
+// the editor and on PC they are set to "Both" eyes, and there a camera with a
+// target texture renders that texture. On the Quest's XR rendering a camera
+// with a stereo target eye is an eye camera: it drew into the headset view
+// instead, at its texture's size, and the map became "a tiny square" in the
+// corner while its screens stayed empty. Such a camera now targets no eye, so
+// it renders into its texture once per frame, as it does on PC.
+int MakeTextureCamerasSingleView(UnityEngine::GameObject* root) {
+  if (!IsManagedAlive(root)) return 0;
+  int changed = 0;
+  auto cameras = root->GetComponentsInChildren<UnityEngine::Camera*>(true);
+  for (int i = 0; i < cameras.size(); i++) {
+    auto* camera = cameras[i];
+    if (!IsManagedAlive(camera)) continue;
+    auto* target = camera->get_targetTexture().unsafePtr();
+    if (!IsManagedAlive(target)) continue;
+    // Single-view twins of the map's shaders while it renders (0.15.3).
+    auto cameraGameObject = camera->get_gameObject();
+    if (IsManagedAlive(cameraGameObject.unsafePtr()) &&
+        cameraGameObject->GetComponent<Vivify::SingleViewCameraShaders*>() == nullptr) {
+      cameraGameObject->AddComponent<Vivify::SingleViewCameraShaders*>();
+    }
+    changed++;
+    if (camera->get_stereoTargetEye() == UnityEngine::StereoTargetEyeMask::None) continue;
+    camera->set_stereoTargetEye(UnityEngine::StereoTargetEyeMask::None);
+    auto cameraObject = camera->get_gameObject();
+    PaperLogger.info("Vivify prefab camera '{}' renders into texture '{}' ({}x{}): set to no eye, so it draws "
+                     "there instead of into the headset view",
+                     IsManagedAlive(cameraObject.unsafePtr()) ? ToStdString(cameraObject->get_name()) : "?",
+                     ToStdString(target->get_name()), target->get_width(), target->get_height());
+  }
+  return changed;
+}
+
+// Realtime reflection probes in a map's prefab, reduced unless "Full
+// Reflection Probes" is on (0.15.3): at most 128 px, no HDR, and one cube face
+// a frame instead of all six. Get Your Wish's water probe is 512 px HDR and
+// re-renders every frame; reduced, it costs about a seventieth as much.
+int ReduceReflectionProbes(UnityEngine::GameObject* root) {
+  if (GetFullReflectionProbes() || !IsManagedAlive(root)) return 0;
+  int changed = 0;
+  auto probes = root->GetComponentsInChildren<UnityEngine::ReflectionProbe*>(true);
+  for (int i = 0; i < probes.size(); i++) {
+    auto* probe = probes[i];
+    if (!IsManagedAlive(probe)) continue;
+    // By value: the enum's static constants are not exported for linking.
+    constexpr int32_t kRealtime = 1;         // ReflectionProbeMode.Realtime
+    constexpr int32_t kIndividualFaces = 1;  // ReflectionProbeTimeSlicingMode.IndividualFaces
+    if (probe->get_mode().value__ != kRealtime) continue;
+    int const before = probe->get_resolution();
+    if (before > 128) probe->set_resolution(128);
+    probe->set_hdr(false);
+    probe->set_timeSlicingMode(UnityEngine::Rendering::ReflectionProbeTimeSlicingMode(kIndividualFaces));
+    changed++;
+    auto probeObject = probe->get_gameObject();
+    PaperLogger.info("Vivify reflection probe '{}' reduced: {} px -> {} px, no HDR, one face a frame",
+                     IsManagedAlive(probeObject.unsafePtr()) ? ToStdString(probeObject->get_name()) : "?", before,
+                     std::min(before, 128));
+  }
+  return changed;
 }
 }
 }
@@ -698,6 +767,9 @@ void Runtime::InstantiatePrefab(CustomJSONData::CustomEventData* customEventData
     if (videoPlayer != nullptr) videoPlayers.emplace_back(videoPlayer);
   }
 
+  NoteTextureCameras(MakeTextureCamerasSingleView(instance));
+  RegisterSingleViewMaterials(instance);
+  ReduceReflectionProbes(instance);
   int const culledAnimators = CullOffscreenAnimators(instance);
   VIVIFY_DEBUG("Vivify InstantiatePrefab spawned: id='{}' asset='{}' tracks={} animators={} offscreenCulled={}",
                storageId, data.asset, data.tracks.size(), animators.size(), culledAnimators);
@@ -942,6 +1014,9 @@ void Runtime::InstantiateReplacementPrefab(AssignedPrefabInfo const& info,
     animator->Update(0.01f);
   }
 
+  NoteTextureCameras(MakeTextureCamerasSingleView(spawned));
+  RegisterSingleViewMaterials(spawned);
+  ReduceReflectionProbes(spawned);
   CullOffscreenAnimators(spawned);
   RegisterSyncedObject(spawned, CurrentSongTime());
   replacement.spawnedObjects.emplace_back(spawned);

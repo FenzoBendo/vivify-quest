@@ -1,4 +1,6 @@
 #include "VivifyRuntimeInternal.hpp"
+#include "VivifyRecovery.hpp"
+#include <ctime>
 #include <chrono>
 #include <algorithm>
 #include "VivifyComponents.hpp"
@@ -140,6 +142,12 @@ void Runtime::Update() {
       RefreshCameraComponents(false);
       _lastGameplayFrame = {};
       return;
+    }
+    if (!_pauseMenuActive) ReportGameplayFrame(UnityEngine::Time::get_unscaledDeltaTime());
+    // Crash recovery's sign of life, every 5 s of play (0.15.2).
+    if (frameStart - _lastRecoveryHeartbeat > std::chrono::seconds(5)) {
+      _lastRecoveryHeartbeat = frameStart;
+      Recovery::Heartbeat(CurrentSongTime(), static_cast<int64_t>(std::time(nullptr)));
     }
     // A frame that took far longer than the game's own pacing is a stall
     // somewhere outside this function -- on a converted map's first frames,
@@ -525,6 +533,20 @@ void Runtime::ResetRuntime(std::string_view reason) {
     PaperLogger.info("Vivify level end: {}", what);
     FlushVivifyLogs();
   };
+  // The return to the menu is the other crash window: every line for the
+  // next 20 s is flushed as written (0.15.1).
+  if (levelWasRunning) {
+    FlushVivifyLogsEveryLineFor(20);
+    // Crash recovery: a song played to its end clears the marker; anything
+    // else keeps it, so a restart straight after can be told apart.
+    bool const finished = _lastKnownSongLength > 0.0f && _lastSongTime >= _lastKnownSongLength - 2.0f;
+    Recovery::LevelEnded(finished, _lastSongTime, static_cast<int64_t>(std::time(nullptr)));
+  }
+  _recoveryMode = false;
+  _recoverySkippedBlits.clear();
+  EndSingleViewCamera();
+  _singleViewSwaps.clear();
+  SetRecoveryModeActive(false);
   step(reason.empty() ? "resetting" : std::string(reason).c_str());
   SetSongPlaying(false);
   // Written before anything is torn down, while the numbers are still valid.

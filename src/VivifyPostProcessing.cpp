@@ -1,4 +1,6 @@
 #include "VivifyRuntimeInternal.hpp"
+#include "VivifyRecovery.hpp"
+#include <ctime>
 #include "VivifyComponents.hpp"
 #include "UnityEngine/Rendering/CameraEvent.hpp"
 #include "UnityEngine/Rendering/TextureDimension.hpp"
@@ -522,6 +524,18 @@ void Runtime::HandleBlit(CustomJSONData::CustomEventData* customEventData, rapid
                        customEventData->time, std::string(*asset));
     }
     return;
+  }
+  // Crash recovery (0.15.2): an effect that was starting when this map last
+  // went down is skipped; every other effect is recorded as it starts, so the
+  // next launch knows which one to blame if this run goes down too.
+  if (asset.has_value() && !clear) {
+    if (IsRecoverySkippedBlit(normalizedAsset)) {
+      PaperLogger.warn("Vivify Blit skipped at time {}: '{}' was starting when this map last went down (crash "
+                       "recovery; 'Forget Crash Recovery' in the advanced settings brings it back)",
+                       customEventData->time, std::string(*asset));
+      return;
+    }
+    Recovery::BlitStarted(normalizedAsset, CurrentSongTime(), static_cast<int64_t>(std::time(nullptr)));
   }
   float const durationBeats = ReadFloat(json, "duration").value_or(0.0f);
   float const duration = DurationBeatsToSeconds(durationBeats);

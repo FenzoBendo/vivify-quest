@@ -4,6 +4,7 @@
 #include "VivifyTextureDecode.hpp"
 #include "VivifyReport.hpp"
 #include "VivifyZip.hpp"
+#include "UnityEngine/Resources.hpp"
 #include "UnityEngine/Texture2D.hpp"
 #include "UnityEngine/AssetBundleRequest.hpp"
 #include "UnityEngine/HideFlags.hpp"
@@ -133,7 +134,16 @@ namespace {
 //      compiler accepts: Through The Screen's depth-only AreaLit shader drew
 //      nothing (0.15.0). Also picks up 0.14.27's geometry pass-through renames,
 //      which went out without a version bump
-constexpr int kBundleConversionVersion = 20;
+//  21  single-pass instanced stereo through a geometry stage (0.15.1). The
+//      vertex stage of such a variant takes the eye from SV_InstanceID even
+//      though it writes no layer itself, so its instance ID now carries the
+//      view as it does for a layer-writing one; the geometry stage's layer
+//      write lands in a dummy under multiview instead of gl_Layer, which sent
+//      every primitive to the left eye (grass in one eye, objects doubled and
+//      offset between the eyes); and a geometry stage that reads the layer
+//      back is translated, with the eye handed over from the vertex stage
+//      (Through The Screen's ParticleScreen and Visualizer, 743 Aether)
+constexpr int kBundleConversionVersion = 21;
 
 // Whether Beat Saber's own shaders use STEREO_MULTIVIEW_ON: -1 not looked yet,
 // 0 no, 1 yes. Unity registers every keyword a loaded shader declares, so the
@@ -982,14 +992,18 @@ void Runtime::SelectBundleForLevel() {
   PaperLogger.info("Vivify settings for this level: standInShading={} convertPcBundlesOnDevice={} "
                    "disableCustomNoteVisuals={} disableAllBlits={} multipassRendering={} effectResolution={}% "
                    "sceneDepth={} prepareShaders={} geometryEffects={} offscreenCulling={} farCulling={}m crashGuard={} "
-                   "pcBundleForMissingShaders={} replayRenderMode={} windowsBundleForThisMap={}",
+                   "pcBundleForMissingShaders={} replayRenderMode={} windowsBundleForThisMap={} mapRealtimeShadows={} "
+                   "mapReflectionProbes={} crashRecovery={}",
                    BoolText(GetStandInShading()), BoolText(GetConvertPcBundlesOnDevice()),
                    BoolText(GetDisableCustomNoteVisuals()), BoolText(GetDisableAllBlits()),
                    BoolText(GetMultipassRenderingEnabled()), GetEffectResolutionPercent(),
                    BoolText(GetSceneDepthTexture()), BoolText(GetPrepareShadersBeforePlaying()),
                    BoolText(GetDrawGeometryShaderEffects()), BoolText(GetOffscreenCulling()),
                    GetFarCullingDistance(), BoolText(GetCrashGuard()), BoolText(GetUsePcBundleForMissingShaders()),
-                   BoolText(GetReplayRenderMode()), BoolText(GetWindowsBundleForMap(_selectedLevelPath)));
+                   BoolText(GetReplayRenderMode()), BoolText(GetWindowsBundleForMap(_selectedLevelPath)),
+                   BoolText(GetMapRealtimeShadows()),
+                   GetMapReflectionProbes() ? (GetFullReflectionProbes() ? "full" : "reduced") : "off",
+                   BoolText(GetCrashRecovery()));
 
   std::string const androidBundlePath = JoinPath(_selectedLevelPath, std::string(kBundleFile));
   bool const androidExists = std::filesystem::exists(androidBundlePath);
@@ -1323,16 +1337,29 @@ bool LevelUsesBlits(std::string const& levelPath) {
 
 }  // namespace
 
+// Left beside a converted map once its prefabs turned out to bring cameras that
+// render into textures (0.15.3): from then on the map's single-view companion
+// is prepared at selection, prefabs included, for those cameras.
+std::string TextureCameraMarkerPath(std::string const& pcBundlePath) {
+  return ConvertedBundlePath(pcBundlePath) + ".cameras";
+}
+
 void Runtime::PrepareBlitCompanion(std::string const& levelPath, std::string const& pcBundlePath) {
-  // Opt-in (0.14.11) until it has been seen working on a headset. Replay
-  // render mode's main conversion is single-view already.
-  if (!GetBlitScreenTextureFix() || ReplayVariantWanted() || !GetTranslateShadersOnConversion() ||
+  _companionPcBundlePath = pcBundlePath;
+  // Blits: opt-in (0.14.11) until seen working on a headset. Texture cameras:
+  // on by default (0.15.3), for maps known to have them. Replay render mode's
+  // main conversion is single-view already.
+  std::error_code ec;
+  bool const forBlits = GetBlitScreenTextureFix();
+  bool const forCameras = GetSingleViewMapCameras() && !pcBundlePath.empty() &&
+                          std::filesystem::exists(TextureCameraMarkerPath(pcBundlePath), ec);
+  if ((!forBlits && !forCameras) || ReplayVariantWanted() || !GetTranslateShadersOnConversion() ||
       pcBundlePath.empty()) {
     return;
   }
   if (_blitCompanionLevel == levelPath && !_singleViewShaders.empty()) return;
-  std::thread([this, levelPath, pcBundlePath]() {
-    if (!LevelUsesBlits(levelPath)) return;
+  std::thread([this, levelPath, pcBundlePath, forBlits, forCameras]() {
+    if (!forCameras && !(forBlits && LevelUsesBlits(levelPath))) return;
     std::string const companion = BlitCompanionPath(pcBundlePath);
     if (!CachedConversionIsCurrent(companion)) {
       BundleConvert::ShaderConversionOptions options;
@@ -1347,17 +1374,19 @@ void Runtime::PrepareBlitCompanion(std::string const& levelPath, std::string con
       }
       MarkConversionCurrent(companion);
     }
-    BSML::MainThreadScheduler::Schedule([this, levelPath, companion]() {
+    BSML::MainThreadScheduler::Schedule([this, levelPath, companion, forCameras]() {
       if (levelPath != _selectedLevelPath) return;
-      LoadBlitCompanion(levelPath, companion);
+      LoadBlitCompanion(levelPath, companion, forCameras);
     });
   }).detach();
 }
 
-void Runtime::LoadBlitCompanion(std::string const& levelPath, std::string const& companionPath) {
+void Runtime::LoadBlitCompanion(std::string const& levelPath, std::string const& companionPath,
+                                bool wantsPrefabs) {
   // One load at a time: a second copy of the same companion would clash with
   // the one in flight. The one in flight checks the level when it lands.
-  if (_blitCompanionCreate || _blitCompanionAssets) return;
+  if (_blitCompanionCreate || _blitCompanionAssets || _blitCompanionPrefabs) return;
+  _blitCompanionLoadingWantsPrefabs = wantsPrefabs;
   ClearBlitCompanion();
   // Asynchronous, advanced by PollBlitCompanion. 0.14.10 loaded the bundle and
   // every material in it (and so their textures) on the main thread in one
@@ -1406,15 +1435,113 @@ void Runtime::PollBlitCompanion() {
       _singleViewShaders.emplace(ShaderNameForLog(shader), shader);
     }
   }
+  // For a map with texture cameras, its prefabs too: the bundle lists only
+  // the materials events name, and the shaders every other object uses are
+  // reached through the prefabs. Loaded here, in the menu, and let go again
+  // straight after (only the shaders are kept).
+  if (current && _blitCompanionLoadingWantsPrefabs && IsAlive(_blitCompanionBundle)) {
+    _blitCompanionPrefabs = _blitCompanionBundle->LoadAllAssetsAsync<UnityEngine::GameObject*>();
+    if (_blitCompanionPrefabs) return;
+  }
+  FinishBlitCompanion(current);
+}
+
+void Runtime::FinishBlitCompanion(bool current) {
   if (IsAlive(_blitCompanionBundle)) _blitCompanionBundle->Unload(false);
   _blitCompanionBundle = nullptr;
   if (!current) return;
   _blitCompanionLevel = _blitCompanionLoadingLevel;
-  PaperLogger.info("Vivify Blit: {} single-view shader(s) ready for blits into screen textures ('{}')",
-                   _singleViewShaders.size(), _blitCompanionLoadingPath);
+  _blitCompanionWantsPrefabs = _blitCompanionLoadingWantsPrefabs;
+  PaperLogger.info("Vivify Blit: {} single-view shader(s) ready for blits into screen textures{} ('{}')",
+                   _singleViewShaders.size(), _blitCompanionWantsPrefabs ? " and the map's texture cameras" : "",
+                   _blitCompanionLoadingPath);
+}
+
+void Runtime::PollBlitCompanionPrefabs() {
+  if (!_blitCompanionPrefabs || !_blitCompanionPrefabs->get_isDone()) return;
+  auto all = _blitCompanionPrefabs->get_allAssets();
+  _blitCompanionPrefabs = nullptr;
+  bool const current = _blitCompanionLoadingLevel == _selectedLevelPath;
+  int added = 0;
+  if (current && all) {
+    for (auto object : all) {
+      auto* prefab = il2cpp_utils::try_cast<UnityEngine::GameObject>(object.unsafePtr()).value_or(nullptr);
+      if (!IsAlive(prefab)) continue;
+      auto renderers = prefab->GetComponentsInChildren<UnityEngine::Renderer*>(true);
+      for (auto* renderer : renderers) {
+        if (!IsAlive(renderer)) continue;
+        auto materials = renderer->get_sharedMaterials();
+        for (auto material : materials) {
+          if (!IsAlive(material.unsafePtr())) continue;
+          auto* shader = material->get_shader().unsafePtr();
+          if (!IsAlive(shader) || !shader->get_isSupported()) continue;
+          if (_singleViewShaders.emplace(ShaderNameForLog(shader), shader).second) {
+            shader->set_hideFlags(UnityEngine::HideFlags::DontUnloadUnusedAsset);
+            added++;
+          }
+        }
+      }
+    }
+  }
+  FinishBlitCompanion(current);
+  // The prefabs' meshes and textures were only needed to reach the shaders.
+  UnityEngine::Resources::UnloadUnusedAssets();
+  if (current) PaperLogger.info("Vivify texture cameras: {} more single-view shader(s) from the map's prefabs", added);
+}
+
+void Runtime::NoteTextureCameras(int count) {
+  if (count <= 0 || _companionPcBundlePath.empty()) return;
+  std::error_code ec;
+  std::string const marker = TextureCameraMarkerPath(_companionPcBundlePath);
+  if (std::filesystem::exists(marker, ec)) return;
+  std::ofstream(marker) << count << "\n";
+  PaperLogger.info("Vivify texture cameras: this map's prefabs render into textures; from the next time it is "
+                   "selected, those cameras get single-view shaders ('Single-View Map Cameras')");
+}
+
+void Runtime::RegisterSingleViewMaterials(UnityEngine::GameObject* root) {
+  if (!_blitCompanionWantsPrefabs || _singleViewShaders.empty() || !IsAlive(root)) return;
+  auto renderers = root->GetComponentsInChildren<UnityEngine::Renderer*>(true);
+  for (auto* renderer : renderers) {
+    if (!IsAlive(renderer)) continue;
+    auto materials = renderer->get_sharedMaterials();
+    for (auto material : materials) {
+      auto* mat = material.unsafePtr();
+      if (!IsAlive(mat) || _singleViewSwaps.contains(mat)) continue;
+      auto* shader = mat->get_shader().unsafePtr();
+      if (!IsAlive(shader)) continue;
+      auto single = _singleViewShaders.find(ShaderNameForLog(shader));
+      if (single == _singleViewShaders.end() || !IsAlive(single->second) || single->second == shader) continue;
+      _singleViewSwaps.emplace(mat, std::make_pair(shader, single->second));
+    }
+  }
+}
+
+// A texture camera is about to render: every registered material draws with
+// its single-view twin until it has. Converted programs are multiview, and a
+// multiview program draws nothing into a single texture: Through The Screen's
+// TV showed no sabers, its floor's area light (drawn by such a camera) left
+// the floor flat white, and its finale screen stayed black (#102).
+void Runtime::BeginSingleViewCamera() {
+  if (_singleViewSwapped || _singleViewSwaps.empty()) return;
+  _singleViewSwapped = true;
+  for (auto& [material, shaders] : _singleViewSwaps) {
+    if (IsAlive(material) && IsAlive(shaders.second)) material->set_shader(shaders.second);
+  }
+}
+
+void Runtime::EndSingleViewCamera() {
+  if (!_singleViewSwapped) return;
+  _singleViewSwapped = false;
+  for (auto& [material, shaders] : _singleViewSwaps) {
+    if (IsAlive(material) && IsAlive(shaders.first)) material->set_shader(shaders.first);
+  }
 }
 
 void Runtime::ClearBlitCompanion() {
+  EndSingleViewCamera();
+  _singleViewSwaps.clear();
+  _blitCompanionWantsPrefabs = false;
   for (auto const& [original, copy] : _singleViewBlitMaterials) {
     if (IsAlive(copy)) UnityEngine::Object::Destroy(copy);
   }

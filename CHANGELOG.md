@@ -11,6 +11,197 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.3] - 2026-11-05
+
+Fixes from the newer reports on
+[#102](https://github.com/trail-b1az3r/vivify-quest/issues/102).
+
+### Fixed
+- **Map objects that never appeared (Get Your Wish's lyrics and more).**
+  Offscreen Culling froze an animator while everything it moved was out of
+  view. Maps often animate things *into* view, from scale 0 or from a
+  renderer that starts disabled; such an object was never seen, so it never
+  moved. The tester found the lyrics and other elements only with culling off.
+  Offscreen Culling is now off by default, under a new setting key so
+  everyone's saved "on" resets once, and labelled "(can hide objects)".
+- **Get Your Wish's water reflected only the notes.** Its water reflects the
+  map through a realtime reflection probe, and 0.15.1 had turned map probes
+  off to stop the start-up crash. Probes are allowed again by default, in a
+  reduced form: at most 128 px, no HDR, one cube face per frame instead of all
+  six (about 1/70 of the cost of that map's 512 px HDR probe). **Full
+  Reflection Probes** turns the reduction off. Crash recovery mode still turns
+  probes off for a map that went down.
+- **Through The Screen: no sabers on the TV, a flat white floor, a black
+  finale screen.** All three are drawn by the map's own cameras, which render
+  into textures one view at a time. A converted map's shaders, on 2019-built
+  bundles like this one, only hold two-eye (multiview) programs, which draw
+  nothing into a single texture. The floor's lighting comes from such a camera
+  (`LightMeshCam`). Now:
+  - such a camera draws the map with single-view twins of its shaders, taken
+    from the map's single-view companion build and swapped in only while that
+    camera renders;
+  - the first time a map's prefabs bring texture cameras, Vivify leaves a
+    marker beside the converted map; from the next selection on, the
+    companion is prepared with the prefabs' shaders included, in the menu, and
+    the prefabs are let go straight after;
+  - new advanced setting: **Single-View Map Cameras** (on by default). Not in
+    Lite.
+
+- **Auto Effect Resolution** (Performance, on by default). Final Slaughter
+  ([#100](https://github.com/trail-b1az3r/vivify-quest/issues/100)) runs a
+  three-pass full-screen effect at full resolution on top of a depth pass for
+  most of the song. The Quest falls behind, its frame synthesis fills the
+  gaps, and notes look like they stop and slide back and forth. When frames
+  stay well above the best this level has managed, map effects step down 10%
+  at a time (to 40% at least), and back up when there is room again.
+- Fixed the 0.15.3 build failing to link (reflection probe enum constants).
+
+### Not fixed yet
+- Get Your Wish's mist blocking the doorway at 0:55, and a map ("scaredTHIN"?)
+  that blinds until paused: these need the map name or a log.
+
+## [0.15.2] - 2026-11-04
+
+### Added
+- **Crash recovery mode.** While a Vivify map plays, a small marker file
+  records the map, a heartbeat every 5 s, and each screen effect (Blit) as it
+  starts. On the next launch, a map counts as having gone down if:
+  - the game crashed or was closed while the map played, or
+  - you left the map from the pause menu within a minute of an effect
+    starting, and the game was restarted within 90 seconds of that. This is
+    what happened with 743 Aether's intro bokeh in 0.15.1.
+
+  Such a map goes on a recovery list (`RecoveryMaps.txt` beside the logs).
+  The next time it is played, it runs in recovery mode:
+  - unused assets are unloaded and memory collected before it starts;
+  - textures load at half resolution (a quarter of the memory), put back
+    when the map ends;
+  - map effects render at half resolution or less;
+  - the effect that was starting when it went down is skipped, and the log
+    says so.
+
+  A Quest app cannot be given more memory than the system allows; this is how
+  a map gets more room instead. New advanced settings: **Crash Recovery Mode**
+  (on by default) and **Forget Crash Recovery** (clears the list). Not in
+  Lite. Host tests cover the cases (`tools/recovery`, run in CI).
+
+- **Test Vivify: a test map made for this port** (`testmap/`). It is a PC
+  Vivify map to play and to check a dev build against, set to Mud Flow's *The
+  Sense of Me / Chemicals*. You stand in a car driving through rain at night;
+  at the switch to *Chemicals* the drive gives way to a shore at dusk, with an
+  original character sitting by the water. It covers:
+  - prefabs and their removal, and render settings (fog, ambient, skybox);
+  - a particle system, plus material and global property animation;
+  - a geometry-shader glow along the edges of the view;
+  - custom notes, debris and sabers with a trail;
+  - two screen effects (Blit).
+
+  Every shader is written for single-pass instanced stereo, as PC maps are.
+  The Unity project builds every mesh, material and prefab from code, and a
+  new workflow (`Build Test Map`) exports the bundle with Unity 2021.3 once
+  the Unity license secrets are set (`testmap/README.md`). `build.yml` packs
+  the latest built map into the full QMOD. **Settings > Diagnostics > Test
+  Vivify** installs it as a custom level. The song is a commercial track and
+  never ships: the map plays your own .ogg copy
+  (`Mods/Vivify/TestMapSong.ogg`).
+- QMODs can now carry `fileCopies` (`scripts/createqmod.ps1`).
+
+### Notes on the 0.15.1 logs
+- Burning Sands and Get Your Wish no longer crash at the start: both played
+  to the end with realtime reflection probes off.
+- 743 Aether froze as its intro bokeh effect started (2 s in), and Why's This
+  Dealer froze as its post-process effect started (28.7 s in). Both shaders
+  convert, compile and link cleanly, and other maps' effects ran in the same
+  sessions, so the cause is not known yet. Recovery mode skips those effects
+  the next time after a freeze.
+
+## [0.15.1] - 2026-11-04
+
+### Fixed
+- **Grass and other geometry-shader effects drew in one eye only.** In a
+  single-pass stereo shader with a geometry stage (grass, fur, screen
+  particles), the vertex stage reads the eye from the instance ID and passes
+  it on, and the geometry stage writes the layer. The translator only rebuilt
+  the instance ID for vertex stages that write the layer themselves. So both
+  views got eye 0, and the geometry stage's `gl_Layer = 0` sent every
+  primitive to the left eye. That is the one-eye grass, and objects that sit
+  doubled and offset between the eyes. Now the instance ID carries the view
+  in these vertex stages too, and the geometry stage's layer write goes to a
+  dummy under multiview.
+- **Geometry shaders that read the eye back now translate.** They were
+  refused before, which left the shader on DirectX: nothing drew. This covers
+  [Through The Screen](https://beatsaver.com/maps/43a5d)'s ParticleScreen and
+  Visualizer, and 743 Aether's effects. Every program of Through The Screen,
+  Get Your Wish, Lifelike and YOU now compiles and links (vertex, geometry and
+  fragment stages together) under glslang.
+- **Through The Screen was "a tiny square".** Its prefabs bring five cameras
+  that render into small textures for its in-world screens (256×224, 128×128,
+  32×32 and others). The map leaves them set to both eyes. On the Quest's XR
+  rendering, a camera with an eye set is an eye camera. These drew into the
+  headset view instead of their textures, at the texture's size, so the map
+  showed as a small square in the corner and its screens stayed empty
+  ([#102](https://github.com/trail-b1az3r/vivify-quest/issues/102)). A camera
+  in a map prefab that renders into a texture is now set to no eye, so it
+  draws into its texture as it does on PC. It is logged as `Vivify prefab
+  camera ...`. One limit: this map's PC bundle is a Unity 2019 build, whose
+  converted shaders have only two-eye (multiview) programs. Converted objects
+  seen through such a camera still draw nothing in its texture; the game's
+  own objects do draw.
+- **Get Your Wish and Burning Sands crashed at the start of the level.** Both
+  turn on realtime reflection probes at time 0 and spawn probes. A realtime
+  probe renders the scene six more times into a cubemap. Get Your Wish's
+  probe is 512 px HDR and re-renders every frame. Realtime reflection probes
+  are now off on Vivify maps by default (new advanced setting **Map
+  Reflection Probes**). Probes keep the skybox or a baked cubemap instead,
+  which should also remove Get Your Wish's oversized water reflections. This
+  is the strongest lead from the logs, not a confirmed cause. See Added for
+  what the next log will show if it still crashes.
+- **Vivify Lite was the full mod under another name.** `qpm s qmod` runs the
+  build again, and that second build configured CMake without `VIVIFY_LITE`,
+  so the full library replaced the lite one before packing. The lite setting
+  is now cached in the build directory and set on the packing step. CI also
+  fails if the lite QMOD's library lacks the lite marker.
+- **Settings text overlapping** ([#101](https://github.com/trail-b1az3r/vivify-quest/issues/101)).
+  Every text in the Vivify tab now reserves its own height. The status line
+  and the This Map row have a fixed height, wrap, and end in an ellipsis
+  instead of drawing over the controls below. Setting labels shrink to fit
+  beside their control. The empty rows at the bottom now reserve real height,
+  so the last settings are no longer cut off by the scroll view.
+
+### Added
+- **Level start and level end are logged line by line.** For 20 seconds after
+  a Vivify level starts, and after it ends, every log line is flushed to disk
+  as it is written. A native crash in those windows (the Get Your Wish and
+  Burning Sands crashes, the crash on the way back to the menu) no longer
+  loses the last lines.
+- **A Beat Saber 1.45.3_30054 build, ready for when its dependencies
+  ship.** A new workflow, `Build Quest Mod (Beat Saber 1.45.3)`, builds the
+  same source for 1.45.3. `scripts/use-game-target.py` with
+  `targets/1.45.3.json` points `qpm.json` and `mod.json` at that game's
+  libraries. Vivify needs CustomJSONData and Tracks, and neither has a 1.45.3
+  release yet (Tracks, Noodle Extensions and Chroma only have unreleased
+  `v1.45.3` branches). Until they do, the workflow names what is missing in
+  its summary and stops without building; this is not a failure. Once they
+  are released it builds full and Lite QMODs named `...-bs1.45.3.qmod`, and
+  any game changes Vivify has to follow show up as compile errors.
+  Code specific to 1.45.3 can test `VIVIFY_GAME_1_45_3`.
+- The per-level settings line also shows `mapRealtimeShadows` and
+  `mapReflectionProbes`.
+- **Mirror diagnostics** for reflections that turn with the head instead of
+  staying in place ([#81](https://github.com/trail-b1az3r/vivify-quest/issues/81)).
+  Each visual check (5, 30 and 90 s) logs the game's active mirrors and what
+  each one renders with. It also lists every enabled camera, since each camera
+  that sees a mirror renders its own reflection. Lifelike's floor mirror is
+  up from 73 s to 92 s, so the 90 s check catches it. Vivify does not touch the
+  game's mirrors, and the comment on #81 says the same problem was in 0.14.7.
+  This is for finding the cause, not a fix.
+
+### Changed
+- **Converted maps are converted again** (conversion version 21) to pick up
+  the stereo fixes above.
+- Realtime reflection probes are off on Vivify maps unless **Map Reflection
+  Probes** is on. That also saves GPU time on every map that uses them.
+
 ## [0.15.0] - 2026-10-28
 
 ### Fixed

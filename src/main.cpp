@@ -5,6 +5,7 @@
 #include <cstring>
 #include "VivifyRuntime.hpp"
 #include "VivifyReport.hpp"
+#include "VivifyRecovery.hpp"
 #include <string>
 #include <string_view>
 #include <fstream>
@@ -21,6 +22,9 @@
 #include "bsml/shared/BSML-Lite/Creation/Text.hpp"
 #include "beatsaber-hook/shared/utils/typedefs-wrappers.hpp"
 #include "HMUI/CurvedTextMeshPro.hpp"
+#include "TMPro/TextMeshProUGUI.hpp"
+#include "TMPro/TextOverflowModes.hpp"
+#include "UnityEngine/UI/LayoutElement.hpp"
 #include "bsml/shared/BSML/Settings/BSMLSettings.hpp"
 #include "custom-types/shared/register.hpp"
 #include "scotland2/shared/modloader.h"
@@ -49,6 +53,16 @@ constexpr std::string_view kSubmitScoresConfigKey = "submitScoresOnVivifyMaps";
 constexpr std::string_view kTranslateShadersConfigKey = "translateShadersOnConversion";
 constexpr std::string_view kAudioLinkConfigKey = "audioLink";
 constexpr std::string_view kMapRealtimeShadowsConfigKey = "mapRealtimeShadows";
+// On by default again since 0.15.3, reduced (see VivifyObjectPrefabs.cpp's
+// ReduceReflectionProbes) unless "Full Reflection Probes" is on. A new key, so
+// the saved "off" of 0.15.1-0.15.2 does not stick: Get Your Wish's water
+// reflects the map through its probe, and with probes off it reflected only
+// the notes (#102).
+constexpr std::string_view kMapReflectionProbesConfigKey = "mapReflectionProbesV2";
+constexpr std::string_view kFullReflectionProbesConfigKey = "fullReflectionProbes";
+constexpr std::string_view kSingleViewMapCamerasConfigKey = "singleViewMapCameras";
+constexpr std::string_view kAutoEffectResolutionConfigKey = "autoEffectResolution";
+constexpr std::string_view kCrashRecoveryConfigKey = "crashRecovery";
 constexpr std::string_view kReplayRenderModeConfigKey = "replayRenderMode";
 constexpr std::string_view kBlitFixConfigKey = "blitScreenTextureFix";
 // Renamed in 0.14.18 so every install starts with it off: 0.14.15 saved it
@@ -58,7 +72,12 @@ constexpr std::string_view kGeometryEffectsConfigKey = "drawGeometryShaderEffect
 constexpr std::string_view kPcShadersForEmptyConfigKey = "pcShadersForEmptyQuestShaders";
 constexpr std::string_view kStandInShaderNameConfigKey = "standInShaderName";
 constexpr std::string_view kEffectResolutionConfigKey = "effectResolutionPercent";
-constexpr std::string_view kOffscreenCullingConfigKey = "offscreenCulling";
+// Offscreen Culling is off by default since 0.15.3, under a new key so that
+// everyone's saved "on" from earlier builds is reset once: an animator frozen
+// while its objects are out of view never brings into view an object it
+// animates from scale 0 or from a disabled renderer. Get Your Wish's lyrics
+// and other elements only appeared with culling off (#102).
+constexpr std::string_view kOffscreenCullingConfigKey = "offscreenCullingV2";
 constexpr std::string_view kCrashGuardConfigKey = "crashGuard";
 constexpr std::string_view kPcBundleForMissingShadersConfigKey = "pcBundleForMissingShaders";
 constexpr std::string_view kFarCullingConfigKey = "farCullingDistance";
@@ -104,6 +123,28 @@ bool gSubmitScores = true;
 bool gTranslateShaders = true;
 bool gAudioLink = true;
 bool gMapRealtimeShadows = false;
+bool gMapReflectionProbes = true;
+bool gFullReflectionProbes = false;
+bool gSingleViewMapCameras = true;
+bool gAutoEffectResolution = true;
+
+// Auto Effect Resolution (0.15.3). Final Slaughter (#100) runs a three-pass
+// full-screen effect at full resolution on top of a depth pass for most of
+// the song; the Quest falls behind, its frame synthesis fills in, and notes
+// look like they stop and slide back and forth. When frames stay slow against
+// the best this level has managed, map effects step down 10% at a time (to
+// 40% at least) and back up once there is room again. Frame times are only
+// compared with each other, so 72, 90 and 120 Hz all work.
+std::atomic<int> gAutoEffectPercent{100};
+struct AutoEffectState {
+  double average = 0.0;      // exponential moving average of frame time, s
+  double best = 0.0;         // fastest average this level
+  double slowFor = 0.0;      // how long the average has been well above best
+  double fastFor = 0.0;      // how long it has been close to best
+  double elapsed = 0.0;
+} gAutoEffect;
+bool gCrashRecovery = true;
+std::atomic<bool> gRecoveryModeActive{false};
 bool gReplayRenderMode = false;
 bool gBlitFix = false;
 bool gPrepareShaders = false;
@@ -122,7 +163,7 @@ std::string gStandInShaderName;
 int gEffectResolution = 100;
 // Animators in a map's prefabs skip updating while none of their renderers is
 // on screen (0.14.23).
-bool gOffscreenCulling = true;
+bool gOffscreenCulling = false;
 // Two loads of a converted bundle that never finish put it into the
 // untranslated (grey) fallback; off, that never happens (0.14.24).
 bool gCrashGuard = true;
@@ -164,6 +205,7 @@ std::string WallClockText() {
 bool gVivifyLogSinkInstalled = false;
 bool gVivifyLogCapped = false;
 std::chrono::steady_clock::time_point gVivifyLogLastFlush{};
+std::atomic<int64_t> gVivifyFlushEveryLineUntil{0};  // steady_clock ticks
 
 void InstallVivifyFileLogSink() {
   if (gVivifyLogSinkInstalled) return;
@@ -192,10 +234,12 @@ void InstallVivifyFileLogSink() {
     if (!data.tag.has_value() || *data.tag != std::string_view(MOD_ID)) return;
     std::lock_guard<std::mutex> lock(gVivifyLogMutex);
     bool const important = data.level >= Paper::LogLevel::WRN;
+    auto const now = std::chrono::steady_clock::now();
+    bool const everyLine = now.time_since_epoch().count() < gVivifyFlushEveryLineUntil.load();
     if (gVivifyGlobalLog.IsOpen()) {
       gVivifyGlobalLog.Write(WallClockText() + " [" + std::string(Paper::format_as(data.level)) + "] " +
                              std::string(data.message));
-      if (important) gVivifyGlobalLog.Flush();
+      if (important || everyLine) gVivifyGlobalLog.Flush();
     }
     if (!gVivifyLogFile.is_open() || gVivifyLogCapped) return;
 
@@ -214,8 +258,7 @@ void InstallVivifyFileLogSink() {
     // be noisy. Warnings and errors still flush immediately, because those are
     // the lines that matter if the game stops before the buffer is written;
     // ordinary lines are flushed at most a few times a second.
-    auto const now = std::chrono::steady_clock::now();
-    if (important || now - gVivifyLogLastFlush > std::chrono::milliseconds(250)) {
+    if (important || everyLine || now - gVivifyLogLastFlush > std::chrono::milliseconds(250)) {
       gVivifyLogFile.flush();
       gVivifyGlobalLog.Flush();
       gVivifyLogLastFlush = now;
@@ -251,6 +294,12 @@ void InstallVivifyFileLogSink() {
 // Writes everything logged so far to the session and global logs now. For the
 // steps around a level's end (0.15.0): a native crash there loses whatever is
 // still buffered, and the last step that reached the file is the clue.
+void FlushVivifyLogsEveryLineFor(int seconds) {
+  auto const until = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
+  gVivifyFlushEveryLineUntil.store(until.time_since_epoch().count());
+  FlushVivifyLogs();
+}
+
 void FlushVivifyLogs() {
   std::lock_guard<std::mutex> lock(gVivifyLogMutex);
   if (gVivifyLogFile.is_open()) gVivifyLogFile.flush();
@@ -397,6 +446,40 @@ void SetIntConfigValue(std::string_view key, int newValue, int& value) {
 // types.
 SafePtrUnity<HMUI::CurvedTextMeshPro> gConvertStatusText;
 
+// Settings layout (0.15.1). Two things overlapped in the Vivify tab:
+//  - a setting's label is laid out from the left edge with no width limit,
+//    so a long one ran under its toggle or increment buttons. Each label now
+//    shrinks to fit the room it has (TMP auto-size, down to 60%);
+//  - a text whose content changes after the menu is built (conversion
+//    status, the This Map row) kept the height of its first content, and a
+//    longer message then drew over the widgets below it. Those texts get a
+//    fixed height for a set number of lines, wrap, and end in an ellipsis.
+void FitSettingLabels(UnityEngine::Component* widget) {
+  if (widget == nullptr) return;
+  auto gameObject = widget->get_gameObject();
+  if (!gameObject) return;
+  auto texts = gameObject->GetComponentsInChildren<TMPro::TextMeshProUGUI*>(true);
+  for (auto* text : texts) {
+    if (text == nullptr) continue;
+    float const size = text->get_fontSize();
+    text->set_enableWordWrapping(false);
+    text->set_fontSizeMax(size);
+    text->set_fontSizeMin(size * 0.6f);
+    text->set_enableAutoSizing(true);
+  }
+}
+
+void FixTextHeight(HMUI::CurvedTextMeshPro* text, int lines, float lineHeight = 4.5f) {
+  if (text == nullptr) return;
+  text->set_enableWordWrapping(true);
+  text->set_overflowMode(TMPro::TextOverflowModes::Ellipsis);
+  auto* layout = text->get_gameObject()->GetComponent<UnityEngine::UI::LayoutElement*>();
+  if (layout == nullptr) layout = text->get_gameObject()->AddComponent<UnityEngine::UI::LayoutElement*>();
+  float const height = static_cast<float>(lines) * lineHeight;
+  layout->set_minHeight(height);
+  layout->set_preferredHeight(height);
+}
+
 void SetConvertStatusText(std::string const& text) {
   if (!gConvertStatusText) return;
   gConvertStatusText->set_text(StringW(text));
@@ -466,7 +549,9 @@ void RegisterModSettings() {
         // Built as a StringW from a std::string, the way every other text in
         // this menu is: the std::u16string this used to assemble by hand is
         // what took the menu down.
-        BSML::Lite::CreateText(parent, StringW(std::string("Vivify ") + VERSION + (kLiteBuild ? " (lite)" : "")));
+        FixTextHeight(
+            BSML::Lite::CreateText(parent, StringW(std::string("Vivify ") + VERSION + (kLiteBuild ? " (lite)" : ""))),
+            1);
 
         // 0.14.29: the everyday settings come first and everything else sits
         // behind "Show Advanced Settings", which hides or shows those widgets
@@ -474,7 +559,9 @@ void RegisterModSettings() {
         // are short enough to fit beside their control. Controls that exist
         // only in the full build are skipped in lite, not shown disabled.
         auto header = [&](std::string const& title) {
-          return BSML::Lite::CreateText(parent, StringW("<size=110%><b>" + title + "</b></size>"));
+          auto* text = BSML::Lite::CreateText(parent, StringW("<size=110%><b>" + title + "</b></size>"));
+          FixTextHeight(text, 1, 6.0f);
+          return text;
         };
         // Registers a widget as advanced: hidden until the button below shows it.
         auto advanced = [](auto* widget) {
@@ -485,12 +572,22 @@ void RegisterModSettings() {
           gameObject->SetActive(gShowAdvanced);
         };
         auto toggle = [&](StringW label, bool value, std::function<void(bool)> onChange) {
-          return BSML::Lite::CreateToggle(parent, label, value, std::move(onChange));
+          auto* created = BSML::Lite::CreateToggle(parent, label, value, std::move(onChange));
+          FitSettingLabels(reinterpret_cast<UnityEngine::Component*>(created));
+          return created;
+        };
+        auto increment = [&](StringW label, float step, float value, float min, float max,
+                             std::function<void(float)> onChange) {
+          auto* created = BSML::Lite::CreateIncrementSetting(parent, label, 0, step, value, true, true, min, max,
+                                                             std::move(onChange));
+          FitSettingLabels(reinterpret_cast<UnityEngine::Component*>(created));
+          return created;
         };
 
         if constexpr (!kLiteBuild) {
           header("This Map");
           gThisMapText = BSML::Lite::CreateText(parent, u"");
+          FixTextHeight(gThisMapText.ptr(), 1);
           gThisMapButton = BSML::Lite::CreateUIButton(parent, u"Windows Bundle: off", []() {
             std::string const path = Vivify::SelectedVivifyMapPath();
             if (path.empty()) {
@@ -511,19 +608,22 @@ void RegisterModSettings() {
           // Renders map post-process effects below eye resolution and scales
           // them up. Full-screen raymarchers cost per pixel: 50% is a quarter of
           // the work. Steps of 5% (0.14.26).
-          BSML::Lite::CreateIncrementSetting(
-              parent, u"Effect Resolution %", 0, 5.0f, static_cast<float>(gEffectResolution), true, true, 25.0f,
-              100.0f, [](float value) {
+          increment(u"Effect Resolution %", 5.0f, static_cast<float>(gEffectResolution), 25.0f, 100.0f,
+              [](float value) {
                 int const percent = std::clamp(static_cast<int>(value + 0.5f), 25, 100);
                 SetIntConfigValue(kEffectResolutionConfigKey, percent, gEffectResolution);
               });
-          toggle(u"Offscreen Culling", gOffscreenCulling,
+          // Steps map effects down while a map runs slow, back up when there
+          // is room (0.15.3).
+          toggle(u"Auto Effect Resolution", gAutoEffectResolution, [](bool value) {
+            SetBoolConfigValue(kAutoEffectResolutionConfigKey, value, gAutoEffectResolution);
+          });
+          toggle(u"Offscreen Culling (can hide objects)", gOffscreenCulling,
                  [](bool value) { SetBoolConfigValue(kOffscreenCullingConfigKey, value, gOffscreenCulling); });
           // Draws nothing farther than this from the player; 0 is off. Steps of
           // 10 m (0.14.26).
-          BSML::Lite::CreateIncrementSetting(
-              parent, u"Far Culling (m, 0 = off)", 0, 10.0f, static_cast<float>(gFarCullingDistance), true, true,
-              0.0f, 1000.0f, [](float value) {
+          increment(u"Far Culling (m, 0 = off)", 10.0f, static_cast<float>(gFarCullingDistance), 0.0f, 1000.0f,
+              [](float value) {
                 int const metres = std::clamp(static_cast<int>(value + 0.5f), 0, 1000);
                 SetIntConfigValue(kFarCullingConfigKey, metres, gFarCullingDistance);
               });
@@ -548,6 +648,7 @@ void RegisterModSettings() {
         // disabled, so it can never be selected into. These convert every
         // installed map in one pass instead.
         gConvertStatusText = BSML::Lite::CreateText(parent, u"Idle");
+        FixTextHeight(gConvertStatusText.ptr(), 3);
         if (Vivify::IsBulkPcBundleConversionRunning()) SetConvertStatusText("Converting...");
         // One progress callback for both buttons; they differ only in whether an
         // already-cached conversion is reused or thrown away first.
@@ -568,13 +669,22 @@ void RegisterModSettings() {
         BSML::Lite::CreateUIButton(parent, u"Convert All PC Bundles", []() { startConversion(false); });
 
         header("Diagnostics");
+        if constexpr (!kLiteBuild) {
+          // The Vivify Quest test map (testmap/ in the repository): a map made
+          // to exercise what a port has to get right (0.15.2).
+          BSML::Lite::CreateUIButton(parent, u"Test Vivify", []() {
+            SetConvertStatusText("Installing the test map...");
+            Vivify::InstallTestMap([](std::string const& text) { SetConvertStatusText(text); });
+          });
+        }
         toggle(u"Debug Logging", GetVivifyDebugLogging(),
                [](bool value) { SetBoolConfigValue(kVivifyDebugLoggingConfigKey, value, gVivifyDebugLogging); });
         // paperlog output is not reachable without adb, so Vivify writes its own
         // plain-text files next to its data, all in this one folder.
-        BSML::Lite::CreateText(parent, StringW("<size=70%>Logs in " + std::string(kVivifyLogDir) +
-                                               ":\nVivifySession.txt, VivifyReport.txt" +
-                                               (kLiteBuild ? "" : ", vivify_global.txt") + "</size>"));
+        FixTextHeight(BSML::Lite::CreateText(parent, StringW("<size=70%>Logs in " + std::string(kVivifyLogDir) +
+                                                             ":\nVivifySession.txt, VivifyReport.txt" +
+                                                             (kLiteBuild ? "" : ", vivify_global.txt") + "</size>")),
+                      2, 3.5f);
 
         gAdvancedButton = BSML::Lite::CreateUIButton(parent, u"Show Advanced Settings", []() {
           gShowAdvanced = !gShowAdvanced;
@@ -600,6 +710,38 @@ void RegisterModSettings() {
         advanced(toggle(u"Map Realtime Shadows", GetMapRealtimeShadows(), [](bool value) {
           SetBoolConfigValue(kMapRealtimeShadowsConfigKey, value, gMapRealtimeShadows);
         }));
+        // Realtime probes re-render the scene into a cubemap; on by default
+        // in a reduced form (128 px, one face a frame, no HDR), full quality
+        // only on request. A map that went down plays without them.
+        advanced(toggle(u"Map Reflection Probes", GetMapReflectionProbes(), [](bool value) {
+          SetBoolConfigValue(kMapReflectionProbesConfigKey, value, gMapReflectionProbes);
+        }));
+        advanced(toggle(u"Full Reflection Probes", GetFullReflectionProbes(), [](bool value) {
+          SetBoolConfigValue(kFullReflectionProbesConfigKey, value, gFullReflectionProbes);
+        }));
+        if constexpr (!kLiteBuild) {
+          // A map's own cameras that render into textures (TV screens,
+          // portals, light meshes) draw with single-view shaders (0.15.3).
+          advanced(toggle(u"Single-View Map Cameras", gSingleViewMapCameras, [](bool value) {
+            SetBoolConfigValue(kSingleViewMapCamerasConfigKey, value, gSingleViewMapCameras);
+          }));
+        }
+        if constexpr (!kLiteBuild) {
+          // A map that crashed or froze last time plays in recovery mode
+          // next time: less memory, and without the effect that was
+          // starting when it went down (0.15.2).
+          advanced(toggle(u"Crash Recovery Mode", gCrashRecovery, [](bool value) {
+            SetBoolConfigValue(kCrashRecoveryConfigKey, value, gCrashRecovery);
+          }));
+          advanced(BSML::Lite::CreateUIButton(parent, u"Forget Crash Recovery", []() {
+            size_t const count = Vivify::Recovery::Entries().size();
+            Vivify::Recovery::ForgetAll();
+            PaperLogger.info("Vivify settings: crash recovery list cleared ({} entr{})", count,
+                             count == 1 ? "y" : "ies");
+            SetConvertStatusText("Crash recovery cleared (" + std::to_string(count) + " entr" +
+                                 (count == 1 ? "y" : "ies") + ")");
+          }));
+        }
         // Experimental: geometry-stage effects are drawn without that stage
         // instead of as grey stand-ins. Changing it reconverts affected maps.
         advanced(toggle(u"Geometry-Shader Effects (exp.)", GetDrawGeometryShaderEffects(),
@@ -684,8 +826,9 @@ void RegisterModSettings() {
           }));
         }
         // Spacers, so the last line of the menu is not clipped by the scroll view.
-        BSML::Lite::CreateText(parent, u" ");
-        BSML::Lite::CreateText(parent, u" ");
+        // The scroll view clips its last rows, which cut off the bottom of the
+        // menu (#81); three empty lines keep the real rows clear of that.
+        FixTextHeight(BSML::Lite::CreateText(parent, u" "), 3);
         } catch (std::exception const& e) {
           PaperLogger.error("Vivify settings menu: construction threw ({}); the controls after the "
                             "failure are missing", e.what());
@@ -773,6 +916,30 @@ bool GetTranslateShadersOnConversion() {
 
 bool GetAudioLinkEnabled() {
   return gAudioLink;
+}
+
+bool GetMapReflectionProbes() {
+  return gMapReflectionProbes;
+}
+
+bool GetFullReflectionProbes() {
+  return gFullReflectionProbes;
+}
+
+bool GetSingleViewMapCameras() {
+  return !kLiteBuild && gSingleViewMapCameras;
+}
+
+bool GetCrashRecovery() {
+  return !kLiteBuild && gCrashRecovery;
+}
+
+bool GetRecoveryModeActive() {
+  return gRecoveryModeActive.load();
+}
+
+void SetRecoveryModeActive(bool active) {
+  gRecoveryModeActive.store(active);
 }
 
 bool GetMapRealtimeShadows() {
@@ -915,8 +1082,52 @@ int GetFarCullingDistance() {
   return kLiteBuild ? 0 : std::clamp(gFarCullingDistance, 0, 1000);
 }
 
+void ResetAutoEffectResolution() {
+  gAutoEffect = AutoEffectState{};
+  gAutoEffectPercent.store(100);
+}
+
+void ReportGameplayFrame(float seconds) {
+  if (kLiteBuild || !gAutoEffectResolution) return;
+  if (!(seconds > 0.0f) || seconds > 0.5f) return;  // a pause or a stall, not pacing
+  auto& s = gAutoEffect;
+  s.elapsed += seconds;
+  s.average = s.average == 0.0 ? seconds : s.average * 0.95 + seconds * 0.05;
+  if (s.elapsed < 2.0) return;  // let the average settle after the level starts
+  if (s.best == 0.0 || s.average < s.best) s.best = s.average;
+  int percent = gAutoEffectPercent.load();
+  if (s.average > s.best * 1.35) {
+    s.slowFor += seconds;
+    s.fastFor = 0.0;
+    if (s.slowFor >= 1.5 && percent > 40) {
+      percent = std::max(40, percent - 10);
+      gAutoEffectPercent.store(percent);
+      s.slowFor = 0.0;
+      PaperLogger.info("Vivify Auto Effect Resolution: frames at {:.1f} ms against a best of {:.1f} ms; map "
+                       "effects down to {}%", s.average * 1000.0, s.best * 1000.0, percent);
+    }
+  } else if (s.average < s.best * 1.15) {
+    s.fastFor += seconds;
+    s.slowFor = 0.0;
+    if (s.fastFor >= 6.0 && percent < 100) {
+      percent = std::min(100, percent + 10);
+      gAutoEffectPercent.store(percent);
+      s.fastFor = 0.0;
+      PaperLogger.info("Vivify Auto Effect Resolution: frames back to {:.1f} ms; map effects up to {}%",
+                       s.average * 1000.0, percent);
+    }
+  } else {
+    s.slowFor = 0.0;
+    s.fastFor = 0.0;
+  }
+}
+
 int GetEffectResolutionPercent() {
-  return kLiteBuild ? 100 : std::clamp(gEffectResolution, 25, 100);
+  if (kLiteBuild) return 100;
+  int percent = std::clamp(gEffectResolution, 25, 100);
+  if (gAutoEffectResolution) percent = std::min(percent, gAutoEffectPercent.load());
+  // Crash recovery mode: half resolution or less (0.15.2).
+  return GetRecoveryModeActive() ? std::min(percent, 50) : percent;
 }
 
 float GetEffectResolutionScale() {
@@ -949,6 +1160,11 @@ void EnsureConfigDefaults() {
   needsWrite |= EnsureBoolConfigValue(kTranslateShadersConfigKey, true, gTranslateShaders);
   needsWrite |= EnsureBoolConfigValue(kAudioLinkConfigKey, true, gAudioLink);
   needsWrite |= EnsureBoolConfigValue(kMapRealtimeShadowsConfigKey, false, gMapRealtimeShadows);
+  needsWrite |= EnsureBoolConfigValue(kMapReflectionProbesConfigKey, true, gMapReflectionProbes);
+  needsWrite |= EnsureBoolConfigValue(kFullReflectionProbesConfigKey, false, gFullReflectionProbes);
+  needsWrite |= EnsureBoolConfigValue(kSingleViewMapCamerasConfigKey, true, gSingleViewMapCameras);
+  needsWrite |= EnsureBoolConfigValue(kAutoEffectResolutionConfigKey, true, gAutoEffectResolution);
+  needsWrite |= EnsureBoolConfigValue(kCrashRecoveryConfigKey, true, gCrashRecovery);
   needsWrite |= EnsureBoolConfigValue(kReplayRenderModeConfigKey, false, gReplayRenderMode);
   needsWrite |= EnsureBoolConfigValue(kBlitFixConfigKey, false, gBlitFix);
   needsWrite |= EnsureBoolConfigValue(kPrepareShadersConfigKey, false, gPrepareShaders);
@@ -957,7 +1173,7 @@ void EnsureConfigDefaults() {
   needsWrite |= EnsureStringConfigValue(kStandInShaderNameConfigKey, std::string(),
                                         gStandInShaderName);
   needsWrite |= EnsureIntConfigValue(kEffectResolutionConfigKey, 100, 25, 100, gEffectResolution);
-  needsWrite |= EnsureBoolConfigValue(kOffscreenCullingConfigKey, true, gOffscreenCulling);
+  needsWrite |= EnsureBoolConfigValue(kOffscreenCullingConfigKey, false, gOffscreenCulling);
   needsWrite |= EnsureBoolConfigValue(kCrashGuardConfigKey, true, gCrashGuard);
   needsWrite |= EnsureBoolConfigValue(kPcBundleForMissingShadersConfigKey, false, gPcBundleForMissingShaders);
   needsWrite |= EnsureIntConfigValue(kFarCullingConfigKey, 0, 0, 1000, gFarCullingDistance);
@@ -970,6 +1186,14 @@ MOD_EXTERN_FUNC void setup(CModInfo *info) noexcept {
   *info = modInfo.to_c();
   try {
     InstallVivifyFileLogSink();
+  } catch (...) {
+  }
+  // What the previous run left behind: a Vivify map that crashed, or froze and
+  // was backed out of, goes on the crash recovery list (0.15.2).
+  try {
+    Vivify::Recovery::SetDirectory(std::string(kVivifyLogDir));
+    std::string const recovery = Vivify::Recovery::ProcessPreviousRun(static_cast<int64_t>(std::time(nullptr)));
+    if (!recovery.empty()) PaperLogger.warn("{}", recovery);
   } catch (...) {
   }
   // A config file another tool or a crash left unreadable must not take the

@@ -149,6 +149,16 @@ private:
   UnityEngine::Camera* _camera = nullptr;
 };
 
+// On a map prefab's camera that renders into a texture (0.15.3): its render
+// uses the single-view twins of the map's converted shaders.
+DECLARE_CLASS_CODEGEN(Vivify, SingleViewCameraShaders, UnityEngine::MonoBehaviour) {
+  DECLARE_DEFAULT_CTOR();
+  DECLARE_SIMPLE_DTOR();
+  DECLARE_INSTANCE_METHOD(void, OnPreRender);
+  DECLARE_INSTANCE_METHOD(void, OnPostRender);
+  DECLARE_INSTANCE_METHOD(void, OnDisable);
+};
+
 DECLARE_CLASS_CODEGEN(Vivify, CameraApplier, UnityEngine::MonoBehaviour) {
   DECLARE_DEFAULT_CTOR();
   DECLARE_SIMPLE_DTOR();

@@ -1,0 +1,8 @@
+# Built by CI (build-test-map.yml) or Unity: the bundle and its checksum.
+bundleWindows2021.vivify
+bundle_crc.txt
+# The song is never committed: bring your own copy.
+song.egg
+song.ogg
+*.wav
+cover.png
