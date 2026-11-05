@@ -10,6 +10,8 @@
 #include "UnityEngine/RenderTexture.hpp"
 #include "UnityEngine/StereoTargetEyeMask.hpp"
 #include "UnityEngine/ReflectionProbe.hpp"
+#include "UnityEngine/Rendering/ReflectionProbeMode.hpp"
+#include "UnityEngine/Rendering/ReflectionProbeTimeSlicingMode.hpp"
 
 namespace Vivify {
 namespace {
