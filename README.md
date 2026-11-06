@@ -1,4 +1,3 @@
-
 ### If you have an issue, please create one and follow the issue template.
 
 ### Log help
@@ -322,5 +321,6 @@ including a glslang compile of every translated program.
 **Testers**
 - ME
 - people who made issues 
+
 **Special thanks to:**
--  ProgrammingEnthusiast78: for quick bug reporting
+-  FenzoBendo: for quick bug reporting
