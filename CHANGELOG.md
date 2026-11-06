@@ -11,6 +11,30 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.3 build 2] - 2026-11-05
+
+Same version, rebuilt. The menu and logs say "0.15.3 build 2".
+
+### Fixed
+- **Settings texts that change showed nothing**: the PC Maps conversion
+  progress, the This Map row and the logs line. Since 0.15.1 these texts had
+  word wrap and an ellipsis on a box of zero height. BSML's settings list does
+  not size its children's heights, so TMP cut every line away. The box now
+  gets its height, and text that does not fit is drawn instead of hidden.
+- **Conversion progress bar**: Convert All PC Bundles shows a bar, a
+  percentage, the count and the map being worked on. The last status is kept,
+  so it shows again when you reopen the menu.
+- **Use Windows Bundle looked like it did nothing**: with no Vivify map
+  selected it could not do anything, and the hint saying so was invisible
+  (above). The row now says plainly that no Vivify map is selected (pick one,
+  with a difficulty that needs Vivify). For a selected map it shows the map
+  and which bundle it uses, and the button reads on, off, or "-".
+
+### Removed
+- **The test map**: Settings > Test Vivify, `testmap/`, the Build Test Map
+  workflow, and the QMOD's test map file (and the `fileCopies` packing added
+  for it). The 0.15.2 entry below describes what was removed.
+
 ## [0.15.3] - 2026-11-05
 
 Fixes from the newer reports on
@@ -85,7 +109,8 @@ Fixes from the newer reports on
   (on by default) and **Forget Crash Recovery** (clears the list). Not in
   Lite. Host tests cover the cases (`tools/recovery`, run in CI).
 
-- **Test Vivify: a test map made for this port** (`testmap/`). It is a PC
+- **Test Vivify: a test map made for this port** (`testmap/`; removed in
+  0.15.3 build 2). It is a PC
   Vivify map to play and to check a dev build against, set to Mud Flow's *The
   Sense of Me / Chemicals*. You stand in a car driving through rain at night;
   at the switch to *Chemicals* the drive gives way to a shore at dusk, with an
@@ -104,7 +129,8 @@ Fixes from the newer reports on
   Vivify** installs it as a custom level. The song is a commercial track and
   never ships: the map plays your own .ogg copy
   (`Mods/Vivify/TestMapSong.ogg`).
-- QMODs can now carry `fileCopies` (`scripts/createqmod.ps1`).
+- QMODs can now carry `fileCopies` (`scripts/createqmod.ps1`; removed in
+  0.15.3 build 2).
 
 ### Notes on the 0.15.1 logs
 - Burning Sands and Get Your Wish no longer crash at the start: both played

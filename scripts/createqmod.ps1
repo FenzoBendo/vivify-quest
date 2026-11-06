@@ -71,17 +71,6 @@ foreach ($lib in $modJson.libraryFiles) {
     $filelist += $path
 }
 
-# Files the mod loader copies elsewhere on install (fileCopies): taken from
-# the repository root, e.g. the test map's VivifyTestMap.zip.
-foreach ($copy in $modJson.fileCopies) {
-    $path = "./" + $copy.name
-    if (-not (Test-Path $path)) {
-        Write-Output "Error: could not find file to copy: $path"
-        exit 1
-    }
-    $filelist += $path
-}
-
 $zip = $qmodName + ".zip"
 $qmod = $qmodName + ".qmod"
 
