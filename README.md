@@ -30,7 +30,7 @@ Vivify stores its diagnostics in:
 Collect these two files for a normal map issue:
 
 - **`VivifySession.txt` — required.** The primary Vivify-specific runtime log for the current launch. It is especially useful for PC-to-Quest conversion, shader translation, bundle loading, Vivify events, cameras, materials, blits, screen textures, rendering settings, AudioLink, and map-specific failures. It is overwritten when Beat Saber starts again.
-- **`VivifyReport.txt` — also important.** The per-level report. Include it whenever a specific map does not work.
+- **`VivifyReport.txt` — recommended.** The per-level report. Include it whenever a specific map does not work.
 - **`vivify_global.txt` — strongly recommended, especially after a crash or restart.** This is the persistent, timestamped Vivify log. Unlike `VivifySession.txt`, it is not cleared on launch: it appends entries from successive sessions, so it can preserve the previous run after a restart. It also records level-teardown breadcrumbs; the last `Vivify level end:` line can identify which teardown step was reached before a crash.
 
 The global log is in the same Vivify folder:
@@ -109,13 +109,15 @@ If you genuinely cannot access `VivifySession.txt`, say so in the issue. Do not 
 
 </details>
 # Vivify Quest
-## current Community recomended version: ***0.14.7***
+## current Community recomended version: **0.14.7**
 A Quest port of [Vivify](https://github.com/Aeroluna/Vivify) for **Beat Saber
 1.40.8**. It plays Vivify maps on the headset, including maps that were only
 ever built for PC.
 
 
 ## **discord server:** ***[here](https://discord.gg/Dt7nvFaWym)***
+
+
 
 It is built from several community Quest ports merged into one (see
 [Credits](#credits)), and adds three things of its own:
