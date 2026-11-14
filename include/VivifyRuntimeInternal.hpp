@@ -10,6 +10,7 @@
 #include <mutex>
 #include "VivifyTypes.hpp"
 #include "UnityEngine/Matrix4x4.hpp"
+#include "GlobalNamespace/Mirror.hpp"
 #include <algorithm>
 #include "UnityEngine/ReflectionProbe.hpp"
 #include "UnityEngine/Rendering/CommandBuffer.hpp"
@@ -17,6 +18,14 @@
 #include "UnityEngine/AssetBundleRequest.hpp"
 #include "System/Collections/Generic/List_1.hpp"
 #include "beatsaber-hook/shared/utils/typedefs-wrappers.hpp"
+
+namespace Vivify {
+// The camera Vivify treats as the player's view (0.15.19): Camera.main, or,
+// while the Replay mod renders a replay to video, the copy of it that Replay
+// renders with (Camera.main then draws only the UI). Map effects, depth,
+// culling and the HUD go to whichever this returns.
+UnityEngine::Camera* VivifyMainCamera();
+}  // namespace Vivify
 
 namespace Vivify {
 // One frustum holding both eyes' views: the widest left and right, up and
@@ -456,8 +465,15 @@ private:
   bool _eyeTrackedBefore = false;
   int _foveationBefore = 0;
   std::vector<UnityEngine::Light*> _disabledSaberLights;
-  // The game's mirrors switched off for a map with Game Mirrors off (0.15.18).
-  std::vector<UnityEngine::Renderer*> _hiddenMirrorRenderers;
+  // The game's mirrors turned plain for a map with Game Mirrors off (0.15.18;
+  // the surface stays, without the reflection, since 0.15.19).
+  struct PlainMirror {
+    GlobalNamespace::Mirror* mirror = nullptr;
+    UnityEngine::Renderer* renderer = nullptr;
+    UnityEngine::Material* material = nullptr;  // what it drew with before
+    bool rendererWasHidden = false;
+  };
+  std::vector<PlainMirror> _plainMirrors;
   float _lastMirrorSweep = -1.0f;
   void HideGameMirrors();
   void RestoreGameMirrors();
@@ -643,7 +659,7 @@ private:
   bool _skipMapTrailsLogged = false;
   std::chrono::steady_clock::time_point _lastRecoveryHeartbeat{};
   float _lastSyncSongTime = -1.0f;
-  float _lastSongAdvanceAt = -1.0f;  // unscaled time the song clock last moved (0.15.17)
+  float _lastSongAdvanceAt = -1.0f;  // frame the song clock last moved (0.15.17; a frame count since 0.15.19)
   int _songTimeCacheFrame = -1;
   int _lastUpdateErrorFrame = -1000;
   int _lastSyncHeartbeatFrame = -1000;

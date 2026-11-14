@@ -3,6 +3,8 @@
 #include "VivifySeparateEye.hpp"
 #include "VivifyGlobalLog.hpp"
 #include "VivifyCrashReport.hpp"
+#include "bsml/shared/BSML/Components/ModalView.hpp"
+#include "bsml/shared/BSML/Components/Settings/ToggleSetting.hpp"
 #include <sstream>
 #include <mutex>
 #include <optional>
@@ -79,7 +81,8 @@ constexpr std::string_view kFullReflectionProbesConfigKey = "fullReflectionProbe
 constexpr std::string_view kSingleViewMapCamerasConfigKey = "singleViewMapCameras";
 constexpr std::string_view kAutoEffectResolutionConfigKey = "autoEffectResolution";
 constexpr std::string_view kCrashRecoveryConfigKey = "crashRecovery";
-constexpr std::string_view kReplayRenderModeConfigKey = "replayRenderMode";
+// On by default from 0.15.19 (new key): it acts only while Replay renders.
+constexpr std::string_view kReplayRenderModeConfigKey = "replayRenderModeV2";
 constexpr std::string_view kBlitFixConfigKey = "blitScreenTextureFix";
 // Map sabers (AssignObjectPrefab saber) replace the player's own, custom saber
 // mods included. Off keeps the player's sabers on every map (0.15.4).
@@ -192,7 +195,7 @@ struct AutoEffectState {
 } gAutoEffect;
 bool gCrashRecovery = true;
 std::atomic<bool> gRecoveryModeActive{false};
-bool gReplayRenderMode = false;
+bool gReplayRenderMode = true;
 bool gBlitFix = false;
 bool gPrepareShaders = false;
 bool gGeometryEffects = false;
@@ -696,6 +699,7 @@ char const* SettingHint(std::u16string_view label) {
        "some effects then draw nothing. Only for a map where those effects still go wrong. Changing it "
        "reconverts the map."},
       {u"Triangle Tessellation (heavy, exp.)",
+       "Turns the Separate-Eye Renderer on too: it only works inside it. "
        "Optional dense geometry for supported uniform triangle patterns, using the Separate-Eye Renderer. "
        "Very heavy: it can sharply reduce frame rate. Unsupported maps keep the usual renderer. "
        "Only the main view is covered; effects on map screens and reflections may still be missing. "
@@ -801,8 +805,34 @@ std::string ProgressBarText(int done, int total) {
 
 // Settings menu state (0.14.29): the advanced widgets the "Show Advanced
 // Settings" button hides and shows, and the This Map row.
-std::vector<SafePtrUnity<UnityEngine::GameObject>> gAdvancedWidgets;
+// Each advanced widget belongs to a category (0.15.19): once "Show Advanced
+// Settings" is pressed, every category is a closed button of its own, and its
+// widgets show only while it is open. category -1: a category's own button.
+struct AdvancedEntry {
+  SafePtrUnity<UnityEngine::GameObject> object;
+  int category = -1;
+};
+std::vector<AdvancedEntry> gAdvancedWidgets;
+std::vector<bool> gAdvancedCategoryOpen;
+std::vector<std::pair<SafePtrUnity<UnityEngine::UI::Button>, std::string>> gAdvancedCategoryButtons;
+int gCurrentAdvancedCategory = -1;
 bool gShowAdvanced = false;
+
+void ApplyAdvancedVisibility() {
+  for (auto& entry : gAdvancedWidgets) {
+    if (!entry.object) continue;
+    bool const open = entry.category < 0 ||
+                      (entry.category < static_cast<int>(gAdvancedCategoryOpen.size()) &&
+                       gAdvancedCategoryOpen[entry.category]);
+    entry.object->SetActive(gShowAdvanced && open);
+  }
+  for (size_t i = 0; i < gAdvancedCategoryButtons.size(); i++) {
+    auto& [button, name] = gAdvancedCategoryButtons[i];
+    if (!button) continue;
+    bool const open = i < gAdvancedCategoryOpen.size() && gAdvancedCategoryOpen[i];
+    BSML::Lite::SetButtonText(button.ptr(), StringW(std::string(open ? "[-] " : "[+] ") + name));
+  }
+}
 SafePtrUnity<UnityEngine::UI::Button> gAdvancedButton;
 SafePtrUnity<HMUI::CurvedTextMeshPro> gThisMapText;
 SafePtrUnity<UnityEngine::UI::Button> gThisMapButton;
@@ -924,6 +954,9 @@ void RegisterModSettings() {
         if (container == nullptr) return;
         UnityEngine::Transform* parent = container->get_transform().unsafePtr();
         gAdvancedWidgets.clear();
+        gAdvancedCategoryOpen.clear();
+        gAdvancedCategoryButtons.clear();
+        gCurrentAdvancedCategory = -1;
         // The list sat off the left edge of the panel and ran its full width:
         // room on both sides makes it narrower and keeps it inside (0.15.10).
         // Moved a further tab's width to the right (0.15.16).
@@ -958,8 +991,27 @@ void RegisterModSettings() {
           if (widget == nullptr) return;
           auto gameObject = widget->get_gameObject();
           if (!gameObject) return;
-          gAdvancedWidgets.emplace_back(gameObject.unsafePtr());
-          gameObject->SetActive(gShowAdvanced);
+          gAdvancedWidgets.push_back(AdvancedEntry{gameObject.unsafePtr(), gCurrentAdvancedCategory});
+          gameObject->SetActive(false);
+        };
+        // A collapsible advanced category: a button that opens or closes the
+        // widgets registered after it, until the next category.
+        auto advancedCategory = [&](std::string const& name) {
+          int const index = static_cast<int>(gAdvancedCategoryOpen.size());
+          gAdvancedCategoryOpen.push_back(false);
+          auto* created = BSML::Lite::CreateUIButton(parent, StringW("[+] " + name), [index]() {
+            if (index < static_cast<int>(gAdvancedCategoryOpen.size())) {
+              gAdvancedCategoryOpen[index] = !gAdvancedCategoryOpen[index];
+            }
+            ApplyAdvancedVisibility();
+          });
+          gAdvancedCategoryButtons.emplace_back(created, name);
+          if (created) {
+            auto gameObject = created->get_gameObject();
+            gAdvancedWidgets.push_back(AdvancedEntry{gameObject.unsafePtr(), -1});
+            gameObject->SetActive(false);
+          }
+          gCurrentAdvancedCategory = index;
         };
         // Hover hints (0.15.4): point at a setting or button and a line or
         // two says what it does. The text is looked up by the control's label
@@ -1005,10 +1057,30 @@ void RegisterModSettings() {
             RefreshThisMapRow();
           });
           hinted(gThisMapButton.ptr(), u"Use Windows Bundle");
-          // Per-map settings (0.15.18): each press goes default, on, off.
+          // Per-map settings (0.15.18), in a window of their own (0.15.19):
+          // each press goes default, on, off.
           gMapSettingButtons.clear();
+          auto* mapModal = BSML::Lite::CreateModal(viewController->get_transform(), UnityEngine::Vector2(85.0f, 75.0f),
+                                                   nullptr, true);
+          SafePtrUnity<BSML::ModalView> mapModalPtr(mapModal);
+          auto* mapModalList = mapModal ? BSML::Lite::CreateScrollableModalContainer(mapModal) : nullptr;
+          UnityEngine::Transform* mapParent = mapModalList ? mapModalList->get_transform().unsafePtr() : parent;
+          if (mapModalList) {
+            FixTextHeight(BSML::Lite::CreateText(mapParent, u"<b>Settings for this map</b>"), 1, 6.0f);
+            FixTextHeight(BSML::Lite::CreateText(mapParent, u"<size=75%>Each press: default, ON, OFF. Default "
+                                                            u"follows the main setting.</size>"),
+                          1, 4.0f);
+          }
+          auto* openMapSettings = BSML::Lite::CreateUIButton(parent, u"Map Settings...", [mapModalPtr]() {
+            RefreshThisMapRow();
+            if (mapModalPtr) mapModalPtr->Show();
+          });
+          if (openMapSettings) {
+            BSML::Lite::AddHoverHint(openMapSettings->get_gameObject().unsafePtr(),
+                                     StringW("Opens this map's own settings in a window"));
+          }
           for (size_t i = 0; i < std::size(kMapSettingRows); i++) {
-            auto* created = BSML::Lite::CreateUIButton(parent, StringW(std::string(kMapSettingRows[i].label)), [i]() {
+            auto* created = BSML::Lite::CreateUIButton(mapParent, StringW(std::string(kMapSettingRows[i].label)), [i]() {
               CycleMapSetting(i);
               RefreshThisMapRow();
             });
@@ -1017,11 +1089,16 @@ void RegisterModSettings() {
                                        StringW(std::string("This map only: default follows the setting below, then "
                                                            "on, then off. ") +
                                                (kMapSettingRows[i].key == kGameMirrorsConfigKey
-                                                    ? "Off hides the game's mirrors (and water using them) in this "
-                                                      "map."
+                                                    ? "Off draws the game's mirrors (the runway, mirror water) "
+                                                      "without their reflection in this map."
                                                     : "")));
             }
             gMapSettingButtons.emplace_back(created);
+          }
+          if (mapModalList) {
+            BSML::Lite::CreateUIButton(mapParent, u"Close", [mapModalPtr]() {
+              if (mapModalPtr) mapModalPtr->Hide();
+            });
           }
           RefreshThisMapRow();
         }
@@ -1138,24 +1215,33 @@ void RegisterModSettings() {
 
         gAdvancedButton = BSML::Lite::CreateUIButton(parent, u"Show Advanced Settings", []() {
           gShowAdvanced = !gShowAdvanced;
-          for (auto& widget : gAdvancedWidgets) {
-            if (widget) widget->SetActive(gShowAdvanced);
-          }
+          ApplyAdvancedVisibility();
           if (gAdvancedButton) {
             BSML::Lite::SetButtonText(gAdvancedButton.ptr(),
                                       gShowAdvanced ? u"Hide Advanced Settings" : u"Show Advanced Settings");
           }
         });
 
-        advanced(header("Shaders"));
+        advancedCategory("Shaders");
         if constexpr (!kLiteBuild) {
-          advanced(toggle(u"Separate-Eye Renderer (prototype)", gExperimentalSeparateEye, [](bool value) {
-            SetBoolConfigValue(kExperimentalSeparateEyeKey, value, gExperimentalSeparateEye);
-            Vivify::SeparateEye::Reset(true);
-            Vivify::ReselectSelectedMap();
-          }));
-          advanced(toggle(u"Triangle Tessellation (heavy, exp.)", gUniformTriangleTessellation, [](bool value) {
+          auto* separateEyeToggle =
+              toggle(u"Separate-Eye Renderer (prototype)", gExperimentalSeparateEye, [](bool value) {
+                SetBoolConfigValue(kExperimentalSeparateEyeKey, value, gExperimentalSeparateEye);
+                Vivify::SeparateEye::Reset(true);
+                Vivify::ReselectSelectedMap();
+              });
+          advanced(separateEyeToggle);
+          // Triangle Tessellation runs only inside the Separate-Eye Renderer,
+          // so on its own it did nothing: Lifelike's grass stayed missing with
+          // it on (0.15.19). Turning it on turns the renderer on as well.
+          SafePtrUnity<BSML::ToggleSetting> separateEyePtr(separateEyeToggle);
+          advanced(toggle(u"Triangle Tessellation (heavy, exp.)", gUniformTriangleTessellation, [separateEyePtr](bool value) {
             SetBoolConfigValue(kUniformTriangleTessellationKey, value, gUniformTriangleTessellation);
+            if (value && !gExperimentalSeparateEye) {
+              SetBoolConfigValue(kExperimentalSeparateEyeKey, true, gExperimentalSeparateEye);
+              if (separateEyePtr) separateEyePtr->set_Value(true);
+              PaperLogger.info("Vivify settings: Triangle Tessellation needs the Separate-Eye Renderer; turned it on");
+            }
             Vivify::SeparateEye::Reset(true);
             Vivify::ReselectSelectedMap();
           }));
@@ -1228,7 +1314,7 @@ void RegisterModSettings() {
                           [](bool value) { SetBoolConfigValue(kCrashGuardConfigKey, value, gCrashGuard); }));
         }
 
-        advanced(header("Effects"));
+        advancedCategory("Effects");
         advanced(toggle(u"Skip Beat-0 Film Grain Blit", GetDisableBeat0FilmgrainBlit(), [](bool value) {
           SetBoolConfigValue(kDisableBeat0FilmgrainBlitConfigKey, value, gDisableBeat0FilmgrainBlit);
         }));
@@ -1240,7 +1326,7 @@ void RegisterModSettings() {
         }));
 
         if constexpr (!kLiteBuild) {
-          advanced(header("Replays"));
+          advancedCategory("Replays");
           // Only applies while the Replay mod renders; with it on, maps get a
           // single-view build prepared at selection for that (0.14.29).
           advanced(toggle(u"Replay Render Mode", gReplayRenderMode, [](bool value) {
@@ -1248,7 +1334,7 @@ void RegisterModSettings() {
           }));
         }
 
-        advanced(header("Maintenance"));
+        advancedCategory("Maintenance");
         // A cached conversion is keyed on the source bundle, so it is reused even
         // after the converter itself has been fixed. This picks fixes up.
         advanced(button(u"Force Reconvert All", []() { startConversion(true); }));
@@ -1512,6 +1598,29 @@ IsInRenderFunction FindReplayIsInRender() {
   return reinterpret_cast<IsInRenderFunction>(api.func);
 }
 
+// Replay's IsInReplay: a replay is being watched or rendered (0.15.19).
+IsInRenderFunction FindReplayIsInReplay() {
+  CModInfo info{.id = "replay", .version = nullptr, .version_long = 0};
+  CModResult mod = modloader_get_mod(&info, MatchType_IdOnly);
+  if (mod.handle == nullptr) return nullptr;
+  auto* exported = reinterpret_cast<ExposedApi (*)()>(dlsym(mod.handle, "__IsInReplay"));
+  if (exported == nullptr) return nullptr;
+  ExposedApi const api = exported();
+  if (api.ret.name != "bool" || api.ret.size != sizeof(bool) || !api.params.empty()) return nullptr;
+  return reinterpret_cast<IsInRenderFunction>(api.func);
+}
+
+bool ReplayModIsReplaying() {
+  static std::atomic<IsInRenderFunction> isInReplay{nullptr};
+  auto function = isInReplay.load();
+  if (function == nullptr) {
+    function = FindReplayIsInReplay();
+    if (function == nullptr) return false;
+    isInReplay.store(function);
+  }
+  return function();
+}
+
 bool ReplayModInstalled() {
   CModInfo info{.id = "replay", .version = nullptr, .version_long = 0};
   return modloader_get_mod(&info, MatchType_IdOnly).handle != nullptr;
@@ -1535,6 +1644,13 @@ bool ReplayModIsRendering() {
 // Single-view programs are what replay renderers draw, but the headset draws
 // none of them: a player who left this on got black maps (#92, #93). So it
 // only applies while the Replay mod is actually rendering (0.14.28).
+bool GetReplayPlaying() {
+  return ReplayModIsReplaying();
+}
+bool GetReplayRendering() {
+  return ReplayModIsRendering();
+}
+
 bool GetReplayRenderMode() {
   return !kLiteBuild && gReplayRenderMode && ReplayModIsRendering();
 }
@@ -1720,7 +1836,7 @@ void EnsureConfigDefaults() {
   needsWrite |= EnsureBoolConfigValue(kSingleViewMapCamerasConfigKey, true, gSingleViewMapCameras);
   needsWrite |= EnsureBoolConfigValue(kAutoEffectResolutionConfigKey, true, gAutoEffectResolution);
   needsWrite |= EnsureBoolConfigValue(kCrashRecoveryConfigKey, true, gCrashRecovery);
-  needsWrite |= EnsureBoolConfigValue(kReplayRenderModeConfigKey, false, gReplayRenderMode);
+  needsWrite |= EnsureBoolConfigValue(kReplayRenderModeConfigKey, true, gReplayRenderMode);
   needsWrite |= EnsureBoolConfigValue(kBlitFixConfigKey, false, gBlitFix);
   needsWrite |= EnsureBoolConfigValue(kPrepareShadersConfigKey, false, gPrepareShaders);
   needsWrite |= EnsureBoolConfigValue(kGeometryEffectsConfigKey, false, gGeometryEffects);

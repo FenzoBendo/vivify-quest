@@ -1266,7 +1266,7 @@ void Runtime::HandleCreateCamera(rapidjson::Value const& json) {
     ParseCameraPropertyData(*propsVal, cam.properties);
   }
   _cameraProperties[name] = cam.properties;
-  auto mainCam = UnityEngine::Camera::get_main();
+  UnityW<UnityEngine::Camera> mainCam(VivifyMainCamera());
   auto* mainCamPtr = mainCam.unsafePtr();
   auto* go = UnityEngine::GameObject::New_ctor(StringW("VivifyCamera_" + name));
   if (IsAlive(mainCamPtr)) {
@@ -1669,7 +1669,7 @@ void Runtime::HandleSetCameraProperty(rapidjson::Value const& json) {
   }
   if (camId == kMainCameraId) {
     _mainCameraPropsDirty = true;
-    auto mainCam = UnityEngine::Camera::get_main();
+    UnityW<UnityEngine::Camera> mainCam(VivifyMainCamera());
     auto* mainCamPtr = mainCam.unsafePtr();
     if (IsAlive(mainCamPtr)) {
       CaptureMainCameraOriginals(mainCamPtr, mainCamPtr->get_gameObject().unsafePtr());
@@ -1881,7 +1881,7 @@ void Runtime::RefreshCameraComponents(bool allowCameraApplier) {
     if (!it->second.camera || !IsAlive(it->second.camera.ptr())) it = _cameraDefaults.erase(it);
     else ++it;
   }
-  auto mainCam = UnityEngine::Camera::get_main();
+  UnityW<UnityEngine::Camera> mainCam(VivifyMainCamera());
   auto* mainCamPtr = mainCam.unsafePtr();
   auto* mainCamGO = IsAlive(mainCamPtr) ? mainCam->get_gameObject().unsafePtr() : nullptr;
   bool const cameraChanged = mainCamGO != _lastMainCameraGO;
