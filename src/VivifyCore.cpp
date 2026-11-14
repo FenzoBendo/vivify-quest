@@ -1,6 +1,10 @@
 #include "VivifyRuntimeInternal.hpp"
 #include "VivifySeparateEye.hpp"
 #include "VivifyRecovery.hpp"
+#include "GlobalNamespace/StandardLevelDetailView.hpp"
+#include "HMUI/HoverHint.hpp"
+#include "UnityEngine/UI/Button.hpp"
+#include "UnityEngine/Transform.hpp"
 #include <ctime>
 #include <chrono>
 #include <algorithm>
@@ -61,6 +65,39 @@ bool Runtime::ShouldDisableVisualsForMultiplayer() {
   return GetDisableVisualsInMultiplayer() && IsInMultiplayerGameplay();
 }
 
+namespace {
+// The Replay mod's "watch replay" button (ReplayButtonCanvas, beside the level's
+// Practice button). Replay makes it clickable only if Play or Practice is,
+// and checks that a single frame after a map is selected: while Vivify was
+// still checking, converting or preparing the map's shaders, Play was off at
+// that moment, so the button stayed greyed out and a Vivify map's replays
+// could not be watched or rendered from it. The same rule is applied again
+// once nothing blocks Play. A button Replay disabled itself on purpose (with
+// its "recording" hover hint) is left alone.
+void RefreshReplayModButton() {
+  if (!GetReplayModInstalled()) return;
+  auto* levelView = UnityEngine::Object::FindObjectOfType<GlobalNamespace::StandardLevelDetailView*>(true);
+  if (!IsManagedAlive(levelView)) return;
+  auto action = levelView->get_actionButton();
+  auto practice = levelView->get_practiceButton();
+  bool const playable = (IsManagedAlive(action.unsafePtr()) && action->get_interactable()) ||
+                        (IsManagedAlive(practice.unsafePtr()) && practice->get_interactable());
+  if (!playable || !IsManagedAlive(practice.unsafePtr())) return;
+  auto parent = practice->get_transform()->get_parent();
+  if (!IsManagedAlive(parent.unsafePtr())) return;
+  auto canvas = parent->Find(StringW("ReplayButtonCanvas"));
+  if (!IsManagedAlive(canvas.unsafePtr())) return;
+  auto* button = canvas->GetComponentInChildren<UnityEngine::UI::Button*>(true);
+  if (!IsManagedAlive(button) || button->get_interactable()) return;
+  if (auto* hint = button->GetComponent<HMUI::HoverHint*>(); IsManagedAlive(hint)) {
+    auto text = hint->get_text();
+    if (text && !ToStdString(text).empty()) return;
+  }
+  button->set_interactable(true);
+  PaperLogger.info("Vivify: the Replay mod's button is clickable again now that the map is ready");
+}
+}  // namespace
+
 void Runtime::LateLoad() {
   auto cjdModInfo = CustomJSONData::modInfo.to_c();
   auto tracksModInfo = CModInfo{.id = "Tracks"};
@@ -85,6 +122,10 @@ void Runtime::LateLoad() {
       [](std::span<SongCore::API::PlayButton::PlayButtonDisablingModInfo const> disablingMods) {
         if (disablingMods.empty()) {
           PaperLogger.info("Vivify: play button is enabled (no mod is blocking it)");
+          // The Replay mod's button follows Play only once, a frame after the
+          // map is selected, when Vivify is usually still preparing it, and
+          // then stays greyed out (0.15.19). Checked again now.
+          BSML::MainThreadScheduler::ScheduleNextFrame([]() { RefreshReplayModButton(); });
           return;
         }
         std::string blockers;
@@ -233,9 +274,53 @@ float Runtime::CurrentSongTime() {
   return _songTimeCache;
 }
 
+UnityEngine::Camera* VivifyMainCamera() {
+  auto main = UnityEngine::Camera::get_main();
+  auto* mainCam = main.unsafePtr();
+  if (!GetReplayRendering() || !IsManagedAlive(mainCam)) return mainCam;
+  // Replay renders through UnityEngine.Object.Instantiate(mainCamera), so its
+  // camera is named "<main>(Clone)", draws one view, and draws just before
+  // the main camera. Found by those traits rather than by Replay's types.
+  static UnityEngine::Camera* cached = nullptr;
+  if (IsManagedAlive(cached) && cached->get_enabled()) return cached;
+  cached = nullptr;
+  auto mainObject = mainCam->get_gameObject();
+  if (!IsManagedAlive(mainObject.unsafePtr())) return mainCam;
+  std::string const cloneName = ToStdString(mainObject->get_name()) + "(Clone)";
+  auto cameras = UnityEngine::Camera::get_allCameras();
+  for (int i = 0; cameras && i < cameras.size(); i++) {
+    auto* camera = cameras[i].unsafePtr();
+    if (!IsManagedAlive(camera) || camera == mainCam || !camera->get_enabled()) continue;
+    if (camera->get_stereoTargetEye().value__ != 0) continue;  // StereoTargetEyeMask.None
+    auto object = camera->get_gameObject();
+    if (!IsManagedAlive(object.unsafePtr()) || ToStdString(object->get_name()) != cloneName) continue;
+    cached = camera;
+    PaperLogger.info("Vivify replay render: using Replay's render camera '{}' for map effects", cloneName);
+    return cached;
+  }
+  return mainCam;
+}
+
 void Runtime::DetectSongRestart() {
   if (_currentBeatmapData == nullptr || _isResetting) return;
   float songTime = CurrentSongTime();
+  // Seeking in a replay (0.15.19). The Replay mod moves the song clock and
+  // sets the game's event cursor just before the new time, so the map's
+  // events in between are never sent: seeking forward skipped every prefab,
+  // effect and property the map set over that stretch, and seeking back left
+  // what came later in place. The map is set up again at the new time, with
+  // every event up to it applied in order (the same catch-up as a level that
+  // starts part way in). A render steps the clock by one video frame, far
+  // below the 1.5 s forward threshold.
+  if (_lastSongTime >= 0.0f && GetReplayPlaying() &&
+      (songTime + 0.25f < _lastSongTime || songTime > _lastSongTime + 1.5f)) {
+    PaperLogger.info("Vivify replay: the replay moved from {:.2f} s to {:.2f} s; setting the map up again there",
+                     _lastSongTime, songTime);
+    auto* beatmapData = _currentBeatmapData;
+    PrepareBeatmap(beatmapData, songTime);
+    _lastSongTime = songTime;
+    return;
+  }
   if (_lastSongTime >= 0.0f && songTime + 0.25f < _lastSongTime) {
     ResetRuntime("song restarted");
     return;
@@ -330,9 +415,12 @@ void Runtime::UpdatePrefabAnimationSpeed() {
   float speed = 0.0f;
   if (!_pauseMenuActive && IsManagedAlive(_audioTimeSyncController)) {
     float const songTime = _audioTimeSyncController->get_songTime();
-    float const now = UnityEngine::Time::get_unscaledTime();
+    // Counted in frames, not seconds (0.15.19): while the Replay mod renders,
+    // one video frame can take longer than a quarter of a second of real
+    // time, and the animations froze between frames of the render.
+    float const now = static_cast<float>(UnityEngine::Time::get_frameCount());
     if (_lastSyncSongTime < 0.0f || songTime > _lastSyncSongTime) _lastSongAdvanceAt = now;
-    bool const running = _lastSongAdvanceAt >= 0.0f && now - _lastSongAdvanceAt < 0.25f;
+    bool const running = _lastSongAdvanceAt >= 0.0f && now - _lastSongAdvanceAt < 15.0f;
     speed = running ? SongSpeed() : 0.0f;
     _lastSyncSongTime = songTime;
   }
@@ -491,7 +579,7 @@ void Runtime::SetPauseMenuActive(bool active) {
 }
 
 void Runtime::RefreshMultipassRendering() {
-  auto mainCam = UnityEngine::Camera::get_main();
+  UnityW<UnityEngine::Camera> mainCam(VivifyMainCamera());
   auto mainCamGO = IsAlive(mainCam.unsafePtr()) ? mainCam->get_gameObject().unsafePtr() : nullptr;
   RefreshMultipassRendering(mainCamGO);
   RefreshLoadedMaterialStereoKeywords();

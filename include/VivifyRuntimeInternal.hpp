@@ -19,6 +19,14 @@
 #include "beatsaber-hook/shared/utils/typedefs-wrappers.hpp"
 
 namespace Vivify {
+// The camera Vivify treats as the player's view (0.15.19): Camera.main, or,
+// while the Replay mod renders a replay to video, the copy of it that Replay
+// renders with (Camera.main then draws only the UI). Map effects, depth,
+// culling and the HUD go to whichever this returns.
+UnityEngine::Camera* VivifyMainCamera();
+}  // namespace Vivify
+
+namespace Vivify {
 // One frustum holding both eyes' views: the widest left and right, up and
 // down tangents of the two projections, around the head (0.15.16). 0.15.13
 // used the left eye's projection widened a fixed quarter, which is skewed to
@@ -643,7 +651,7 @@ private:
   bool _skipMapTrailsLogged = false;
   std::chrono::steady_clock::time_point _lastRecoveryHeartbeat{};
   float _lastSyncSongTime = -1.0f;
-  float _lastSongAdvanceAt = -1.0f;  // unscaled time the song clock last moved (0.15.17)
+  float _lastSongAdvanceAt = -1.0f;  // frame the song clock last moved (0.15.17; a frame count since 0.15.19)
   int _songTimeCacheFrame = -1;
   int _lastUpdateErrorFrame = -1000;
   int _lastSyncHeartbeatFrame = -1000;

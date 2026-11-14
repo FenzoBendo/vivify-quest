@@ -339,7 +339,7 @@ void CullingCameraController::CullingPostRender() {
 void SecondaryCameraController::OnPreCull() {
   auto* camera = GetCamera();
   if (!IsManagedAlive(camera)) return;
-  auto mainCam = UnityEngine::Camera::get_main();
+  UnityW<UnityEngine::Camera> mainCam(VivifyMainCamera());
   auto* other = mainCam.unsafePtr();
   if (IsManagedAlive(other) && other != camera) {
     SyncCameraBloom(other, camera, nullptr, false);

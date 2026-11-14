@@ -1443,7 +1443,7 @@ bool SameVector(UnityEngine::Vector3 const& a, UnityEngine::Vector3 const& b) {
 
 void Runtime::PullHeadsetHud(UnityEngine::Camera* camera) {
   if (_hudObjects.empty() || _currentBeatmapData == nullptr || _isResetting || !IsAlive(camera)) return;
-  auto main = UnityEngine::Camera::get_main();
+  UnityW<UnityEngine::Camera> main(VivifyMainCamera());
   if (camera != main.unsafePtr()) return;
   auto const eye = camera->get_transform()->get_position();
   for (auto& hud : _hudObjects) {

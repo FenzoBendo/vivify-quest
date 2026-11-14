@@ -11,6 +11,52 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.19] - 2026-11-14
+
+Replays of Vivify maps with the Replay mod (BeatLeader replays): watching,
+seeking and rendering to video. Worked out from the Replay mod's source, as
+the logs alone did not show it. Not tried on a headset.
+
+### Fixed
+- **The replay button stayed greyed out on Vivify maps.** The Replay mod
+  makes its button clickable only if the map's Play or Practice button is,
+  and checks that once, one frame after the map is selected. On a Vivify map
+  Play is still held at that moment ("Checking shaders", "Preparing
+  shaders", converting), so the replay button stayed off. When nothing holds
+  Play any more, Vivify now applies Replay's own rule again. A button Replay
+  disabled on purpose (with its recording hover hint) is left alone.
+- **Seeking in a replay corrupted the map.** Replay moves the song clock and
+  sets the game's event cursor just before the new time, so none of the
+  map's events in between are sent:
+  - seeking forward skipped every prefab, effect and property change over
+    that stretch;
+  - seeking back left later objects in place.
+
+  During a replay, a jump of more than 1.5 s forward or any jump back now
+  sets the map up again at the new time, with every event up to it applied
+  in order.
+- **Map effects missing from rendered videos.** Replay renders through its
+  own copy of the game camera, while the game camera draws only the UI.
+  Vivify kept attaching the map's screen effects, scene depth, culling and
+  HUD to the game camera, so none of it reached the video. While Replay
+  renders, Vivify now uses Replay's render camera for all of that. The map's
+  own cameras follow it too.
+- **Map animations froze between frames of a render.** 0.15.17 stopped them
+  once the song clock had not moved for a quarter of a second of real time,
+  and a render frame can take longer than that. Now it is counted in frames.
+
+### Changed
+- **Replay Render Mode is on by default** (new setting key). It only acts
+  while Replay is rendering, and only prepares anything when Replay is
+  installed. It is what lets Unity 2019 PC maps draw in a render: their
+  converted shaders have no single-view programs otherwise.
+
+### Not changed
+- Some BeatLeader replays saved when quitting a map cannot be read ("End of
+  input at <hashing>" in Replay's log). The file stops before its last part,
+  which is what happens when the game goes down while BeatLeader is still
+  writing it. Replays from failed and finished runs read fine.
+
 ## [0.15.18] - 2026-11-14
 
 From logs_7 (0.15.17). Not tried on a headset.

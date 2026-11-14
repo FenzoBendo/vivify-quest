@@ -77,6 +77,10 @@ void FlushVivifyLogsEveryLineFor(int seconds);
 // Replay render mode (0.14.9): converted maps get single-screen programs only,
 // for replay and recording renderers. The headset draws none of them.
 bool GetReplayRenderMode();
+// The Replay mod is playing back a replay (watching or rendering), and
+// rendering one to video (0.15.19).
+bool GetReplayPlaying();
+bool GetReplayRendering();
 // Flushes the session and global logs to disk now.
 void FlushVivifyLogs();
 bool GetReplayRenderModeSetting();

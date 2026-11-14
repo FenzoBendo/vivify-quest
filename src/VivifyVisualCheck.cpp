@@ -269,7 +269,7 @@ void Runtime::RunVisualCheck(std::string_view when) {
   }
 
   // Whether the main camera draws the notes' layer at all.
-  auto camera = UnityEngine::Camera::get_main();
+  UnityW<UnityEngine::Camera> camera(VivifyMainCamera());
   if (IsAlive(camera.unsafePtr())) {
     int const mask = camera->get_cullingMask();
     if (firstCheck) {

@@ -79,7 +79,8 @@ constexpr std::string_view kFullReflectionProbesConfigKey = "fullReflectionProbe
 constexpr std::string_view kSingleViewMapCamerasConfigKey = "singleViewMapCameras";
 constexpr std::string_view kAutoEffectResolutionConfigKey = "autoEffectResolution";
 constexpr std::string_view kCrashRecoveryConfigKey = "crashRecovery";
-constexpr std::string_view kReplayRenderModeConfigKey = "replayRenderMode";
+// On by default from 0.15.19 (new key): it acts only while Replay renders.
+constexpr std::string_view kReplayRenderModeConfigKey = "replayRenderModeV2";
 constexpr std::string_view kBlitFixConfigKey = "blitScreenTextureFix";
 // Map sabers (AssignObjectPrefab saber) replace the player's own, custom saber
 // mods included. Off keeps the player's sabers on every map (0.15.4).
@@ -192,7 +193,7 @@ struct AutoEffectState {
 } gAutoEffect;
 bool gCrashRecovery = true;
 std::atomic<bool> gRecoveryModeActive{false};
-bool gReplayRenderMode = false;
+bool gReplayRenderMode = true;
 bool gBlitFix = false;
 bool gPrepareShaders = false;
 bool gGeometryEffects = false;
@@ -1512,6 +1513,29 @@ IsInRenderFunction FindReplayIsInRender() {
   return reinterpret_cast<IsInRenderFunction>(api.func);
 }
 
+// Replay's IsInReplay: a replay is being watched or rendered (0.15.19).
+IsInRenderFunction FindReplayIsInReplay() {
+  CModInfo info{.id = "replay", .version = nullptr, .version_long = 0};
+  CModResult mod = modloader_get_mod(&info, MatchType_IdOnly);
+  if (mod.handle == nullptr) return nullptr;
+  auto* exported = reinterpret_cast<ExposedApi (*)()>(dlsym(mod.handle, "__IsInReplay"));
+  if (exported == nullptr) return nullptr;
+  ExposedApi const api = exported();
+  if (api.ret.name != "bool" || api.ret.size != sizeof(bool) || !api.params.empty()) return nullptr;
+  return reinterpret_cast<IsInRenderFunction>(api.func);
+}
+
+bool ReplayModIsReplaying() {
+  static std::atomic<IsInRenderFunction> isInReplay{nullptr};
+  auto function = isInReplay.load();
+  if (function == nullptr) {
+    function = FindReplayIsInReplay();
+    if (function == nullptr) return false;
+    isInReplay.store(function);
+  }
+  return function();
+}
+
 bool ReplayModInstalled() {
   CModInfo info{.id = "replay", .version = nullptr, .version_long = 0};
   return modloader_get_mod(&info, MatchType_IdOnly).handle != nullptr;
@@ -1535,6 +1559,13 @@ bool ReplayModIsRendering() {
 // Single-view programs are what replay renderers draw, but the headset draws
 // none of them: a player who left this on got black maps (#92, #93). So it
 // only applies while the Replay mod is actually rendering (0.14.28).
+bool GetReplayPlaying() {
+  return ReplayModIsReplaying();
+}
+bool GetReplayRendering() {
+  return ReplayModIsRendering();
+}
+
 bool GetReplayRenderMode() {
   return !kLiteBuild && gReplayRenderMode && ReplayModIsRendering();
 }
@@ -1720,7 +1751,7 @@ void EnsureConfigDefaults() {
   needsWrite |= EnsureBoolConfigValue(kSingleViewMapCamerasConfigKey, true, gSingleViewMapCameras);
   needsWrite |= EnsureBoolConfigValue(kAutoEffectResolutionConfigKey, true, gAutoEffectResolution);
   needsWrite |= EnsureBoolConfigValue(kCrashRecoveryConfigKey, true, gCrashRecovery);
-  needsWrite |= EnsureBoolConfigValue(kReplayRenderModeConfigKey, false, gReplayRenderMode);
+  needsWrite |= EnsureBoolConfigValue(kReplayRenderModeConfigKey, true, gReplayRenderMode);
   needsWrite |= EnsureBoolConfigValue(kBlitFixConfigKey, false, gBlitFix);
   needsWrite |= EnsureBoolConfigValue(kPrepareShadersConfigKey, false, gPrepareShaders);
   needsWrite |= EnsureBoolConfigValue(kGeometryEffectsConfigKey, false, gGeometryEffects);
