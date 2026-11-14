@@ -46,6 +46,22 @@ the logs alone did not show it. Not tried on a headset.
   and a render frame can take longer than that. Now it is counted in frames.
 
 ### Changed
+- **Per-map settings open in a window of their own.** Under This Map, press
+  **Map Settings...**. The window lists them, each still going default, ON,
+  OFF, with a Close button.
+- **Advanced settings are grouped.** After **Show Advanced Settings**, each
+  category is a closed button of its own: Shaders, Effects, Replays and
+  Maintenance. Pressing one opens its settings and `[-]` closes them again.
+- **Game Mirrors OFF keeps the surfaces.** In 0.15.18 it switched the game's
+  mirrors off entirely, and Lifelike's runway is the game's track mirror, so
+  the runway went missing. Each mirror now draws with the plain material the
+  game itself uses when mirrors are off in its graphics settings, and only
+  its reflection stops.
+- **Triangle Tessellation turns the Separate-Eye Renderer on as well.** It
+  only works inside that renderer, so on its own it did nothing, and
+  Lifelike's grass, whose shader uses tessellation stages the converter
+  cannot translate, stayed missing. Whether the grass then draws has not been
+  seen on a headset.
 - **Replay Render Mode is on by default** (new setting key). It only acts
   while Replay is rendering, and only prepares anything when Replay is
   installed. It is what lets Unity 2019 PC maps draw in a render: their

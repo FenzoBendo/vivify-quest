@@ -10,6 +10,7 @@
 #include <mutex>
 #include "VivifyTypes.hpp"
 #include "UnityEngine/Matrix4x4.hpp"
+#include "GlobalNamespace/Mirror.hpp"
 #include <algorithm>
 #include "UnityEngine/ReflectionProbe.hpp"
 #include "UnityEngine/Rendering/CommandBuffer.hpp"
@@ -464,8 +465,15 @@ private:
   bool _eyeTrackedBefore = false;
   int _foveationBefore = 0;
   std::vector<UnityEngine::Light*> _disabledSaberLights;
-  // The game's mirrors switched off for a map with Game Mirrors off (0.15.18).
-  std::vector<UnityEngine::Renderer*> _hiddenMirrorRenderers;
+  // The game's mirrors turned plain for a map with Game Mirrors off (0.15.18;
+  // the surface stays, without the reflection, since 0.15.19).
+  struct PlainMirror {
+    GlobalNamespace::Mirror* mirror = nullptr;
+    UnityEngine::Renderer* renderer = nullptr;
+    UnityEngine::Material* material = nullptr;  // what it drew with before
+    bool rendererWasHidden = false;
+  };
+  std::vector<PlainMirror> _plainMirrors;
   float _lastMirrorSweep = -1.0f;
   void HideGameMirrors();
   void RestoreGameMirrors();

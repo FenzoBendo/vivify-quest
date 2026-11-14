@@ -1599,43 +1599,64 @@ void Runtime::RestoreVivifyFoveation() {
   if (restored && !_foveationEyeTracked) _foveationApplied = false;
 }
 
-// Game Mirrors off for this map (0.15.18). The game's mirrors -- the floor and
-// track mirrors, and map objects that use the game's mirror material, such
-// as Lifelike's waterfall -- render a reflection camera of their own, and in
-// Lifelike, luminescent and "you" that reflection turns with the head
-// (issue #81, with GraphicsTweaks' mirrors on). Their renderers are switched
-// off about once a second while such a map plays, which also stops their
-// reflection camera, and come back when the level ends. Once a second
-// catches a mirror the map turns on part way through.
+// Game Mirrors off for this map (0.15.18). The game's mirrors render a
+// reflection camera of their own, and in Lifelike, luminescent and "you" that
+// reflection turns with the head (issue #81, with GraphicsTweaks' mirrors on).
+// 0.15.18 switched their renderers off, which also took away the surfaces
+// themselves: Lifelike's runway is the game's track mirror and went missing.
+// Now each mirror draws with the plain material the game itself uses when
+// mirrors are off in its graphics settings (_noMirrorMaterial), and its
+// reflection component is stopped: the surface stays, without a reflection.
+// Only a mirror with no such material is hidden. Swept about once a second,
+// which catches a mirror the map turns on part way through; everything comes
+// back when the level ends.
 void Runtime::HideGameMirrors() {
   if (_currentBeatmapData == nullptr || _isResetting || GetGameMirrors()) return;
   float const now = UnityEngine::Time::get_unscaledTime();
   if (now >= _lastMirrorSweep && now - _lastMirrorSweep < 1.0f) return;
   _lastMirrorSweep = now;
   auto mirrors = UnityEngine::Object::FindObjectsOfType<GlobalNamespace::Mirror*>();
-  int hidden = 0;
+  int changed = 0;
   for (int i = 0; mirrors && i < mirrors.size(); i++) {
     auto* mirror = mirrors[i];
     if (!IsAlive(mirror)) continue;
     auto* renderer = mirror->____renderer.unsafePtr();
-    if (!IsAlive(renderer) || !renderer->get_enabled()) continue;
-    renderer->set_enabled(false);
-    if (std::find(_hiddenMirrorRenderers.begin(), _hiddenMirrorRenderers.end(), renderer) ==
-        _hiddenMirrorRenderers.end()) {
-      _hiddenMirrorRenderers.push_back(renderer);
-      hidden++;
+    if (!IsAlive(renderer)) continue;
+    auto* plain = mirror->____noMirrorMaterial.unsafePtr();
+    bool const known = std::any_of(_plainMirrors.begin(), _plainMirrors.end(),
+                                   [mirror](PlainMirror const& entry) { return entry.mirror == mirror; });
+    if (known) {
+      // The game can put the mirror material back; keep it plain.
+      if (IsAlive(plain) && renderer->get_sharedMaterial().unsafePtr() != plain) renderer->set_sharedMaterial(plain);
+      continue;
     }
+    if (!mirror->get_enabled() && !renderer->get_enabled()) continue;
+    PlainMirror entry{mirror, renderer, renderer->get_sharedMaterial().unsafePtr(), false};
+    mirror->set_enabled(false);
+    if (IsAlive(plain)) {
+      renderer->set_sharedMaterial(plain);
+    } else if (renderer->get_enabled()) {
+      renderer->set_enabled(false);
+      entry.rendererWasHidden = true;
+    }
+    _plainMirrors.push_back(entry);
+    changed++;
   }
-  if (hidden > 0) {
-    PaperLogger.info("Vivify: {} game mirror(s) switched off for this map (Game Mirrors is off for it)", hidden);
+  if (changed > 0) {
+    PaperLogger.info("Vivify: {} game mirror(s) drawn without their reflection for this map (Game Mirrors is off "
+                     "for it)", changed);
   }
 }
 
 void Runtime::RestoreGameMirrors() {
-  for (auto* renderer : _hiddenMirrorRenderers) {
-    if (IsAlive(renderer)) renderer->set_enabled(true);
+  for (auto const& entry : _plainMirrors) {
+    if (IsAlive(entry.renderer)) {
+      if (IsAlive(entry.material)) entry.renderer->set_sharedMaterial(entry.material);
+      if (entry.rendererWasHidden) entry.renderer->set_enabled(true);
+    }
+    if (IsAlive(entry.mirror)) entry.mirror->set_enabled(true);
   }
-  _hiddenMirrorRenderers.clear();
+  _plainMirrors.clear();
   _lastMirrorSweep = -1.0f;
 }
 
