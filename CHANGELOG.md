@@ -11,6 +11,19 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.20] - 2026-11-14
+
+Not tried on a headset.
+
+### Changed
+- **Converted bundles are kept in one folder per map**:
+  `Mods/Vivify/ConvertedBundles/<map>/`. Each map's folder holds the
+  conversion and everything made from it: the blit, replay and donor builds,
+  the separate-eye and triangle-tessellation builds, and the markers and
+  proofs beside them. Files from earlier versions are moved into their map's
+  folder the first time Vivify works out a converted path, by renaming, so
+  nothing has to be converted again.
+
 ## [0.15.19] - 2026-11-14
 
 Replays of Vivify maps with the Replay mod (BeatLeader replays): watching,
