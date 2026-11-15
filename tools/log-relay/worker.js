@@ -42,7 +42,45 @@ async function github(env, method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = response.status === 204 ? null : await response.json().catch(() => null);
-  return { status: response.status, data };
+  return {
+    status: response.status,
+    data,
+    rateLimitRemaining: response.headers.get("X-RateLimit-Remaining"),
+    rateLimitReset: response.headers.get("X-RateLimit-Reset"),
+    retryAfter: response.headers.get("Retry-After"),
+  };
+}
+
+function githubFailure(label, result) {
+  const message = typeof result.data?.message === "string" ? result.data.message : "no GitHub error message";
+  const rate = result.rateLimitRemaining !== null ? `, rate-limit remaining: ${result.rateLimitRemaining}` : "";
+  const retry = result.retryAfter ? `, retry after: ${result.retryAfter}s` : "";
+  return new Error(`${label}: GitHub HTTP ${result.status} (${message})${rate}${retry}`);
+}
+
+// Cache the branch index briefly: the dashboard refreshes every 15 seconds,
+// and without this each page view makes three GitHub API calls.
+const LOG_INDEX_CACHE_SECONDS = 20;
+function logIndexCacheKey(env) {
+  const repo = encodeURIComponent(env.REPO || "trail-b1az3r/vivify-quest");
+  const branch = encodeURIComponent(env.BRANCH || "LOGS");
+  return new Request(`https://vivify-log-relay-cache.internal/api/logs?repo=${repo}&branch=${branch}`);
+}
+async function readLogsCached(env) {
+  if (typeof caches === "undefined" || !caches.default) return readLogs(env);
+  const cache = caches.default;
+  const key = logIndexCacheKey(env);
+  const cached = await cache.match(key);
+  if (cached) return cached.json();
+  const data = await readLogsCached(env);
+  await cache.put(key, new Response(JSON.stringify(data), {
+    headers: { "Content-Type": "application/json", "Cache-Control": `public, max-age=${LOG_INDEX_CACHE_SECONDS}` },
+  }));
+  return data;
+}
+async function invalidateLogIndexCache(env) {
+  if (typeof caches === "undefined" || !caches.default) return;
+  await caches.default.delete(logIndexCacheKey(env));
 }
 
 // One commit holding `entries` on top of the branch (or as its first commit).
@@ -58,7 +96,7 @@ async function commit(env, entries, message) {
       if (parentCommit.status !== 200) throw new Error(`reading the branch head: ${parentCommit.status}`);
       baseTree = parentCommit.data.tree.sha;
     } else if (ref.status !== 404) {
-      throw new Error(`reading the branch: ${ref.status}`);
+      throw githubFailure("reading the branch", ref);
     }
     const tree = await github(env, "POST", "/git/trees", {
       ...(baseTree ? { base_tree: baseTree } : {}),
@@ -85,11 +123,11 @@ async function readLogs(env) {
   const branch = env.BRANCH || "LOGS";
   const ref = await github(env, "GET", `/git/ref/heads/${branch}`);
   if (ref.status === 404) return { uploads: [], days: [], totalBytes: 0 };
-  if (ref.status !== 200) throw new Error(`reading the logs branch: ${ref.status}`);
+  if (ref.status !== 200) throw githubFailure("reading the logs branch", ref);
   const commitResult = await github(env, "GET", `/git/commits/${ref.data.object.sha}`);
-  if (commitResult.status !== 200) throw new Error(`reading the logs commit: ${commitResult.status}`);
+  if (commitResult.status !== 200) throw githubFailure("reading the logs commit", commitResult);
   const treeResult = await github(env, "GET", `/git/trees/${commitResult.data.tree.sha}?recursive=1`);
-  if (treeResult.status !== 200) throw new Error(`reading the logs tree: ${treeResult.status}`);
+  if (treeResult.status !== 200) throw githubFailure("reading the logs tree", treeResult);
   const groups = new Map();
   for (const item of treeResult.data.tree || []) {
     const match = item.path.match(/^(logs\/\d{4}-\d{2}-\d{2}\/[^/]+)\/([^/]+)$/);
@@ -125,14 +163,14 @@ export default {
       } catch (error) { return json(502, { error: error.message }); }
     }
     if (request.method === "GET" && url.pathname === "/api/logs") {
-      try { return json(200, await readLogs(env)); }
+      try { return json(200, await readLogsCached(env)); }
       catch (error) { return json(502, { error: error.message }); }
     }
     if (request.method === "GET" && url.pathname === "/api/log") {
       const path = url.searchParams.get("path") || "";
       if (!/^logs\/\d{4}-\d{2}-\d{2}\/[^/]+\/(?:VivifyCrash|VivifyReport|RecoveryMaps|PlayingLevel|VivifySession)(?:-part\d{3})?\.txt$|^logs\/\d{4}-\d{2}-\d{2}\/[^/]+\/vivify_global(?:-p\d{1,3})?(?:-part\d{3})?\.txt$/.test(path)) return json(400, { error: "Invalid log path" });
       try {
-        const index = await readLogs(env);
+        const index = await readLogsCached(env);
         const file = index.uploads.flatMap((upload) => upload.files).find((entry) => entry.path === path);
         if (!file) return json(404, { error: "Log file unavailable" });
         // Use the Git blob endpoint: the Contents endpoint stops returning JSON
@@ -174,6 +212,7 @@ export default {
       const entries = body.files.map((file) => ({ path: `${folder}/${file.name}`, text: file.text }));
       try {
         const sha = await commit(env, entries, `Logs from Vivify ${version} (${upload})`);
+        await invalidateLogIndexCache(env);
         return reply(200, `${folder} ${sha.slice(0, 7)}`);
       } catch (error) { return reply(502, `could not commit: ${error.message}`); }
     }
