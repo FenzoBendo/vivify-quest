@@ -278,6 +278,8 @@ void BeginUpload(bool manual) {
       else break;
     } while (true);
     gUploadRunning.store(false);
+    if (gManualPending.exchange(false)) BeginUpload(true);
+    else if (gAutoPending.exchange(false)) BeginUpload(false);
   }).detach();
 }
 
