@@ -11,6 +11,31 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.22] - 2026-11-15
+
+Not tried on a headset.
+
+### Added
+- **Replay recorder** (full build only; needs the Replay mod). Vivify records
+  each single-player level to a BSOR replay in `Mods/bl/replays/`, where the
+  Replay mod lists it next to the play button to watch or render. Nothing is
+  uploaded and BeatLeader is not needed. Settings, under Advanced > Replays:
+  - **Record Replays** (on): records when the Replay mod is installed and no
+    replay is being watched or rendered.
+  - **Record With BeatLeader** (off): BeatLeader saves its own replays, so
+    with it installed Vivify records only when this is on.
+  Cleared and failed plays are kept, and quits after 5 s of song; the newest
+  10 per map, difficulty and mode are kept. Files are named
+  `VivifyLocal-[practice-][fail-|quit-]<song>-<difficulty>-<mode>-<hash>-<time>.bsor`,
+  using the "quit" flag the Replay mod reads. Watching and rendering use
+  Vivify's existing Replay mod support (seek re-prepare, render camera).
+- The recorder and BSOR writer are ported from the BeatLeader Quest mod
+  (MIT, `licenses/beatleader-qmod-MIT.txt`). Left out: uploads, the
+  BeatLeader account (replays are by "Player"), dance mode, multiplayer, and
+  saber offsets (written as identity).
+- `tools/replayformat`: a host test that reads the written layout back;
+  Validate runs it as replay-format-tests.
+
 ## [0.15.21] - 2026-11-15
 
 Not tried on a headset.

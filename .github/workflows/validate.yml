@@ -248,6 +248,21 @@ jobs:
       working-directory: tools/log-relay
       run: node test.mjs
 
+  replay-format-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Build and run the BSOR replay format tests, with sanitizers
+      # Vivify's replay recorder writes BeatLeader's BSOR layout for the
+      # Replay mod; this reads it back with a reader written from the layout.
+      run: |
+        g++ -std=c++20 -O1 -g -fsanitize=address,undefined -Wall \
+            -I include -o /tmp/replayformat \
+            tools/replayformat/main.cpp src/VivifyReplayFormat.cpp
+        /tmp/replayformat
+
   crash-report-tests:
     runs-on: ubuntu-latest
     steps:
