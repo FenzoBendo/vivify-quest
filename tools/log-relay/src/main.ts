@@ -29,8 +29,14 @@ const dateLabel = (date: string) => new Date(date + 'T12:00:00').toLocaleDateStr
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 function chart() {
-  const days = data.days.slice(-14);
-  const values = days.length ? days : Array.from({ length: 7 }, (_, i) => ({ date: '', uploads: 0, bytes: 0 }));
+  const byDate = new Map(data.days.map(day => [day.date, day]));
+  const values = Array.from({ length: 14 }, (_, i) => {
+    const date = new Date();
+    date.setHours(12, 0, 0, 0);
+    date.setDate(date.getDate() - (13 - i));
+    const key = date.toISOString().slice(0, 10);
+    return byDate.get(key) ?? { date: key, uploads: 0, bytes: 0 };
+  });
   const max = Math.max(1, ...values.map(d => d.uploads));
   const w = 720, h = 188, left = 8, bottom = 158, top = 12;
   const step = (w - left * 2) / Math.max(values.length, 1);
