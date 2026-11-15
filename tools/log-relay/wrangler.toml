@@ -4,7 +4,7 @@ main = "worker.js"
 compatibility_date = "2026-01-01"
 
 [triggers]
-crons = ["17 3 * * *"]
+crons = ["17 * * * *"]
 
 [assets]
 directory = "./dist"
