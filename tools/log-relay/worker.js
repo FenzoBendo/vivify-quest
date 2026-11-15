@@ -72,7 +72,7 @@ async function readLogsCached(env) {
   const key = logIndexCacheKey(env);
   const cached = await cache.match(key);
   if (cached) return cached.json();
-  const data = await readLogsCached(env);
+  const data = await readLogs(env);
   await cache.put(key, new Response(JSON.stringify(data), {
     headers: { "Content-Type": "application/json", "Cache-Control": `public, max-age=${LOG_INDEX_CACHE_SECONDS}` },
   }));
