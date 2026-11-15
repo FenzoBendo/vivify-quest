@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -109,6 +110,30 @@ std::string PartName(std::string const& name, std::uintmax_t offset, bool split)
   return stem + suffix + ".txt";
 }
 
+// Cloudflare Workers are serverless: they cannot be restarted on demand.
+// A fresh uncached health request wakes/validates the relay before a manual
+// upload, and bounded retries give transient cold-start/network failures time
+// to clear without risking duplicate log commits.
+bool PrepareRelay(UploadConfig const& config) {
+  std::string url = config.relayUrl;
+  while (!url.empty() && url.back() == '/') url.pop_back();
+  url += "/api/health";
+  for (int attempt = 0; attempt < 3; ++attempt) {
+    WebUtils::URLOptions options(url, std::nullopt, 15);
+    options.noEscape = true;
+    auto response = WebUtils::Get<WebUtils::StringResponse>(options);
+    if (response.IsSuccessful()) {
+      PaperLogger.info("Vivify Send Logs: relay health check succeeded");
+      return true;
+    }
+    PaperLogger.warn("Vivify Send Logs: relay health check failed (http {}, curl {}), attempt {}/3",
+                     response.get_HttpCode(), response.get_CurlStatus(), attempt + 1);
+    if (attempt < 2) std::this_thread::sleep_for(std::chrono::seconds(attempt + 1));
+  }
+  PaperLogger.warn("Vivify Send Logs: relay did not become healthy; manual upload cancelled without advancing log offsets");
+  return false;
+}
+
 bool PostBatch(UploadConfig const& config, std::vector<UploadFile> const& batch) {
   if (batch.empty()) return true;
   rapidjson::Document body(rapidjson::kObjectType);
@@ -150,6 +175,9 @@ bool PostBatch(UploadConfig const& config, std::vector<UploadFile> const& batch)
 }
 
 void Run(UploadConfig config, bool manual) {
+  // Only the menu's explicit Send Logs action performs relay recovery checks.
+  // Automatic uploads stay lightweight and retain their existing behaviour.
+  if (manual && !PrepareRelay(config)) return;
   std::filesystem::path const dir(config.directory);
   std::filesystem::path const statePath = dir / "LogUpload.state";
   auto state = ReadState(statePath);
