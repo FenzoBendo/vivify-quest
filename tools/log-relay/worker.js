@@ -147,11 +147,55 @@ async function readLogs(env) {
   return { uploads, days: [...daysMap.values()].sort((a, b) => a.date.localeCompare(b.date)), totalBytes: uploads.reduce((sum, item) => sum + item.bytes, 0) };
 }
 
+
+async function pruneExpiredLogs(env, now = Date.now()) {
+  const branch = env.BRANCH || "LOGS";
+  const cutoff = now - 30 * 24 * 60 * 60 * 1000;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const ref = await github(env, "GET", "/git/ref/heads/" + branch);
+    if (ref.status === 404) return { deletedFiles: 0, deletedUploads: 0 };
+    if (ref.status !== 200) throw githubFailure("reading the logs branch for retention", ref);
+    const headSha = ref.data.object.sha;
+    const commitResult = await github(env, "GET", "/git/commits/" + headSha);
+    if (commitResult.status !== 200) throw githubFailure("reading the logs commit for retention", commitResult);
+    const treeResult = await github(env, "GET", "/git/trees/" + commitResult.data.tree.sha + "?recursive=1");
+    if (treeResult.status !== 200) throw githubFailure("reading the logs tree for retention", treeResult);
+    if (treeResult.data.truncated) throw new Error("retention aborted: GitHub returned a truncated logs tree");
+    const expired = (treeResult.data.tree || []).filter(item => {
+      const match = item.path.match(/^logs\/(\d{4}-\d{2}-\d{2})\/[^/]+\/[^/]+$/);
+      return match && Date.parse(match[1] + "T00:00:00Z") < cutoff;
+    });
+    if (!expired.length) return { deletedFiles: 0, deletedUploads: 0 };
+    const folders = new Set(expired.map(item => item.path.split("/").slice(0, 3).join("/")));
+    const tree = await github(env, "POST", "/git/trees", {
+      base_tree: commitResult.data.tree.sha,
+      tree: expired.map(item => ({ path: item.path, sha: null })),
+    });
+    if (tree.status !== 201) throw githubFailure("building the retention tree", tree);
+    const made = await github(env, "POST", "/git/commits", {
+      message: "Expire " + expired.length + " diagnostic log file(s) older than 30 days",
+      tree: tree.data.sha,
+      parents: [headSha],
+    });
+    if (made.status !== 201) throw githubFailure("committing log retention", made);
+    const moved = await github(env, "PATCH", "/git/refs/heads/" + branch, { sha: made.data.sha, force: false });
+    if (moved.status === 200) {
+      await invalidateLogIndexCache(env);
+      return { deletedFiles: expired.length, deletedUploads: folders.size };
+    }
+    if (moved.status !== 422) throw githubFailure("updating the branch after retention", moved);
+  }
+  throw new Error("the logs branch kept moving during retention; retry on the next scheduled run");
+}
+
 function json(status, data) {
   return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" } });
 }
 
 export default {
+  async scheduled(controller, env, ctx) {
+    ctx.waitUntil(pruneExpiredLogs(env).catch(error => console.error("log retention failed:", error)));
+  },
   async fetch(request, env) {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/api/health") {
@@ -162,8 +206,14 @@ export default {
       } catch (error) { return json(502, { error: error.message }); }
     }
     if (request.method === "GET" && url.pathname === "/api/logs") {
-      try { return json(200, await readLogsCached(env)); }
-      catch (error) { return json(502, { error: error.message }); }
+      try {
+        const index = await readLogsCached(env);
+        const date = url.searchParams.get("date");
+        const uploadId = url.searchParams.get("upload");
+        if (date && !/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) return json(400, { error: "Invalid date filter" });
+        const uploads = index.uploads.filter(item => (!date || item.date === date) && (!uploadId || item.id === uploadId));
+        return json(200, { ...index, uploads, totalBytes: uploads.reduce((sum, item) => sum + item.bytes, 0) });
+      } catch (error) { return json(502, { error: error.message }); }
     }
     if (request.method === "GET" && url.pathname === "/api/log") {
       const path = url.searchParams.get("path") || "";
@@ -178,7 +228,10 @@ export default {
         if (blob.status !== 200 || typeof blob.data.content !== "string") return json(502, { error: "Log file unavailable" });
         const content = atob(blob.data.content.replace(/\n/g, ""));
         const bytes = Uint8Array.from(content, (c) => c.charCodeAt(0));
-        return new Response(new TextDecoder().decode(bytes), { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
+        const filename = path.split("/").pop();
+        const headers = { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
+        if (url.searchParams.get("download") === "1") headers["Content-Disposition"] = `attachment; filename="${filename}"`;
+        return new Response(new TextDecoder().decode(bytes), { headers });
       } catch (error) { return json(502, { error: error.message }); }
     }
     // Uploads: POST /api/upload. The root serves the dashboard's static
