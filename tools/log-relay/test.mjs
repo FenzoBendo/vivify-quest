@@ -1,10 +1,11 @@
 // Tests worker.js against a fake GitHub API: node test.mjs
 import worker from "./worker.js";
-let refSha = null, commits = {}, trees = {}, blobs = {}, n = 0, raceOnce = false, calls = [];
+let refSha = null, commits = {}, trees = {}, blobs = {}, n = 0, raceOnce = false, calls = [], authHeaders = [];
 globalThis.fetch = async (url, init) => {
   const path = url.replace("https://api.github.com/repos/trail-b1az3r/vivify-quest", "");
   const body = init.body ? JSON.parse(init.body) : null;
   calls.push(init.method + " " + path);
+  if (init.method === "GET") authHeaders.push(init.headers?.Authorization);
   const json = (status, data) => new Response(data ? JSON.stringify(data) : null, { status });
   if (init.method === "GET" && path === "/git/ref/heads/LOGS") return refSha ? json(200, { object: { sha: refSha } }) : json(404, { message: "Not Found" });
   if (init.method === "GET" && path.startsWith("/git/commits/")) return json(200, commits[path.split("/").pop()]);
@@ -43,6 +44,8 @@ r = await worker.fetch(new Request("https://relay/api/logs"), env);
 const index = await r.json();
 check("dashboard API lists uploaded bundles", r.status === 200 && index.uploads.length === 1 && index.uploads[0].files.length === 2 && index.totalBytes === 8);
 check("health endpoint reports upload and file counts", (await worker.fetch(new Request("https://relay/api/health"), env)).status === 200);
+r = await worker.fetch(new Request("https://relay/api/logs"), {});
+check("public dashboard reads work without a write token", r.status === 200 && authHeaders.at(-1) === undefined);
 const logPath = index.uploads[0].files[0].path;
 r = await worker.fetch(new Request("https://relay/api/log?path=" + encodeURIComponent(logPath)), env);
 check("dashboard API reads an uploaded log", r.status === 200 && (await r.text()) === "hello");
