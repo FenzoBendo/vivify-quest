@@ -162,8 +162,13 @@ async function pruneExpiredLogs(env, now = Date.now()) {
     if (treeResult.status !== 200) throw githubFailure("reading the logs tree for retention", treeResult);
     if (treeResult.data.truncated) throw new Error("retention aborted: GitHub returned a truncated logs tree");
     const expired = (treeResult.data.tree || []).filter(item => {
-      const match = item.path.match(/^logs\/(\d{4}-\d{2}-\d{2})\/[^/]+\/[^/]+$/);
-      return match && Date.parse(match[1] + "T00:00:00Z") < cutoff;
+      const match = item.path.match(/^logs\/(\d{4}-\d{2}-\d{2})\/([^/]+)\/[^/]+$/);
+      if (!match) return false;
+      const time = match[2].match(/^(\d{2})(\d{2})(\d{2})_/);
+      const timestamp = time
+        ? Date.parse(match[1] + "T" + time[1] + ":" + time[2] + ":" + time[3] + "Z")
+        : Date.parse(match[1] + "T00:00:00Z");
+      return timestamp < cutoff;
     });
     if (!expired.length) return { deletedFiles: 0, deletedUploads: 0 };
     const folders = new Set(expired.map(item => item.path.split("/").slice(0, 3).join("/")));
