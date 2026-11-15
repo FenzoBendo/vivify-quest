@@ -231,6 +231,21 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+        cache-dependency-path: tools/log-relay/package.json
+
+    - name: Install dashboard dependencies
+      working-directory: tools/log-relay
+      run: npm install
+
+    - name: Type-check and build the dashboard
+      working-directory: tools/log-relay
+      run: npm run build
+
     - name: Test the log relay against a fake GitHub API
       working-directory: tools/log-relay
       run: node test.mjs
