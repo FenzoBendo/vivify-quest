@@ -4,6 +4,7 @@
 #include "VivifyGlobalLog.hpp"
 #include "VivifyCrashReport.hpp"
 #include "VivifyLogUpload.hpp"
+#include "VivifyReplayRecorder.hpp"
 #include "bsml/shared/BSML.hpp"
 #include "bsml/shared/BSML/Components/ModalView.hpp"
 #include "bsml/shared/BSML/Components/Settings/ToggleSetting.hpp"
@@ -143,6 +144,12 @@ bool gSendLogs = true;
 // build, cleared when it installs a release (0.15.21). "Update Vivify" then
 // asks for a second press, since it would go back to an older stable build.
 bool gInstalledPrereleaseBuild = false;
+// Replay recorder (0.15.22): on by default; with BeatLeader installed it
+// records its own, so Vivify does not unless asked.
+bool gRecordReplays = true;
+constexpr std::string_view kRecordReplaysConfigKey = "recordReplays";
+bool gRecordReplaysWithBeatLeader = false;
+constexpr std::string_view kRecordReplaysWithBeatLeaderConfigKey = "recordReplaysWithBeatLeader";
 constexpr std::string_view kInstalledPrereleaseConfigKey = "installedPrereleaseBuild";
 std::string gLogRelayUrl;
 bool gDisableBeat0FilmgrainBlit = false;
@@ -634,6 +641,12 @@ char const* SettingHint(std::u16string_view label) {
       {u"Separate-Eye Renderer (prototype)",
        "Experimental: renders depth and screen effects per eye, with separate shaders for map texture cameras. "
        "Off by default; visual and performance validation required. Reuses native multiview when compatible, otherwise uses two replacement views. Effects stay at 100%."},
+      {u"Record Replays",
+       "Records every single-player level to Mods/bl/replays, where the Replay mod (needed) finds it to watch "
+       "or render. Nothing is uploaded and BeatLeader is not needed. Keeps the last 10 tries per map."},
+      {u"Record With BeatLeader",
+       "Also record when BeatLeader is installed. Off by default, since BeatLeader saves its own replays and "
+       "the Replay mod would list both."},
       {u"Use Windows Bundle",
        "For the selected map only: use its PC (Windows) bundle, converted on the headset, instead of its Quest "
        "bundle. Try it when a map's Quest version looks wrong or is missing things."},
@@ -1378,6 +1391,14 @@ void RegisterModSettings() {
           advanced(toggle(u"Replay Render Mode", gReplayRenderMode, [](bool value) {
             SetBoolConfigValue(kReplayRenderModeConfigKey, value, gReplayRenderMode);
           }));
+          // Vivify's own recorder (0.15.22): BSOR files in Mods/bl/replays/,
+          // which the Replay mod watches and renders without BeatLeader.
+          advanced(toggle(u"Record Replays", gRecordReplays, [](bool value) {
+            SetBoolConfigValue(kRecordReplaysConfigKey, value, gRecordReplays);
+          }));
+          advanced(toggle(u"Record With BeatLeader", gRecordReplaysWithBeatLeader, [](bool value) {
+            SetBoolConfigValue(kRecordReplaysWithBeatLeaderConfigKey, value, gRecordReplaysWithBeatLeader);
+          }));
         }
 
         advancedCategory("Maintenance");
@@ -1696,6 +1717,8 @@ bool GetReplayPlaying() {
 bool GetReplayRendering() {
   return ReplayModIsRendering();
 }
+bool GetRecordReplays() { return !kLiteBuild && gRecordReplays; }
+bool GetRecordReplaysWithBeatLeader() { return gRecordReplaysWithBeatLeader; }
 
 bool GetReplayRenderMode() {
   return !kLiteBuild && gReplayRenderMode && ReplayModIsRendering();
@@ -1863,6 +1886,8 @@ void EnsureConfigDefaults() {
   needsWrite |= EnsureBoolConfigValue(kVivifyDebugLoggingConfigKey, false, gVivifyDebugLogging);
   needsWrite |= EnsureBoolConfigValue(kSendLogsConfigKey, true, gSendLogs);
   needsWrite |= EnsureBoolConfigValue(kInstalledPrereleaseConfigKey, false, gInstalledPrereleaseBuild);
+  needsWrite |= EnsureBoolConfigValue(kRecordReplaysConfigKey, true, gRecordReplays);
+  needsWrite |= EnsureBoolConfigValue(kRecordReplaysWithBeatLeaderConfigKey, false, gRecordReplaysWithBeatLeader);
   needsWrite |= EnsureStringConfigValue(kLogRelayUrlConfigKey, std::string(), gLogRelayUrl);
   needsWrite |= EnsureBoolConfigValue(kDisableBeat0FilmgrainBlitConfigKey, false, gDisableBeat0FilmgrainBlit);
   needsWrite |= EnsureBoolConfigValue(kDisableAllBlitsConfigKey, false, gDisableAllBlits);
@@ -1998,6 +2023,8 @@ MOD_EXTERN_FUNC void late_load() noexcept {
     custom_types::Register::AutoRegister();
     RegisterModSettings();
     Vivify::LateLoad();
+    // Full build only; whether a level is recorded is decided at its start.
+    if constexpr (!kLiteBuild) Vivify::ReplayRecorder::InstallHooks();
   } catch (std::exception const& ex) {
     PaperLogger.error("Vivify late_load failed ({}); Vivify is not active this session", ex.what());
   } catch (...) {

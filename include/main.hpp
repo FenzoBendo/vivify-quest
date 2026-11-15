@@ -83,6 +83,9 @@ bool GetReplayRenderMode();
 // rendering one to video (0.15.19).
 bool GetReplayPlaying();
 bool GetReplayRendering();
+// Vivify's replay recorder (0.15.22, full build only).
+bool GetRecordReplays();
+bool GetRecordReplaysWithBeatLeader();
 // Flushes the session and global logs to disk now.
 void FlushVivifyLogs();
 bool GetReplayRenderModeSetting();
