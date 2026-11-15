@@ -174,7 +174,7 @@ pre-release. It is rebuilt daily when something has changed.
 
 ## Settings
 
-All settings are in **Mod Settings → Vivify**.
+All settings are in **Mod Settings → Vivify**. When **Send Logs** is enabled, Vivify automatically uploads new diagnostics after a map ends or is quit (Debug logging must also be enabled for automatic uploads). The **Send Logs** button on the main menu's left side manually uploads complete available Vivify log files, up to twice the automatic upload budget; large files are split into numbered parts.
 
 Two builds are published with each release. **Vivify-v…** has every feature.
 **Vivify-Lite-v…** has the feature set of 0.14.7 (with the geometry-shader

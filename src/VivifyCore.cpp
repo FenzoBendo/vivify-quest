@@ -1,6 +1,7 @@
 #include "VivifyRuntimeInternal.hpp"
 #include "VivifySeparateEye.hpp"
 #include "VivifyRecovery.hpp"
+#include "VivifyLogUpload.hpp"
 #include "GlobalNamespace/StandardLevelDetailView.hpp"
 #include "HMUI/HoverHint.hpp"
 #include "UnityEngine/UI/Button.hpp"
@@ -789,6 +790,8 @@ void Runtime::ResetRuntime(std::string_view reason) {
   _inMultiplayerGameplay = false;
   _isResetting = false;
   step("done");
+  // Upload only after the report and all teardown breadcrumbs have been flushed.
+  if (levelWasRunning) LogUpload::UploadAfterLevelEnd();
 }
 
 }

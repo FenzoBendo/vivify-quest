@@ -14,10 +14,10 @@
 //   REPO          "owner/name"           (default trail-b1az3r/vivify-quest)
 //   BRANCH        branch to commit to    (default LOGS; created as an orphan)
 
-const MAX_BODY = 5 * 1024 * 1024;
+const MAX_BODY = 20 * 1024 * 1024;
 const MAX_TEXT = 4.5 * 1024 * 1024;
 const MAX_FILES = 12;
-const NAME = /^(VivifyCrash|VivifyReport|RecoveryMaps|PlayingLevel)\.txt$|^vivify_global(-p\d{1,3})?\.txt$/;
+const NAME = /^(?:VivifyCrash|VivifyReport|RecoveryMaps|PlayingLevel|VivifySession)(?:-part\d{3})?\.txt$|^vivify_global(?:-p\d{1,3})?(?:-part\d{3})?\.txt$/;
 const VERSION = /^[0-9A-Za-z.\- ]{1,32}$/;
 const UPLOAD = /^[0-9a-f]{16}$/;
 
@@ -125,7 +125,7 @@ export default {
     }
     if (request.method === "GET" && url.pathname === "/api/log") {
       const path = url.searchParams.get("path") || "";
-      if (!/^logs\/\d{4}-\d{2}-\d{2}\/[^/]+\/(VivifyCrash|VivifyReport|RecoveryMaps|PlayingLevel)\.txt$|^logs\/\d{4}-\d{2}-\d{2}\/[^/]+\/vivify_global(-p\d{1,3})?\.txt$/.test(path)) return json(400, { error: "Invalid log path" });
+      if (!/^logs\/\d{4}-\d{2}-\d{2}\/[^/]+\/(?:VivifyCrash|VivifyReport|RecoveryMaps|PlayingLevel|VivifySession)(?:-part\d{3})?\.txt$|^logs\/\d{4}-\d{2}-\d{2}\/[^/]+\/vivify_global(?:-p\d{1,3})?(?:-part\d{3})?\.txt$/.test(path)) return json(400, { error: "Invalid log path" });
       try {
         const index = await readLogs(env);
         const file = index.uploads.flatMap((upload) => upload.files).find((entry) => entry.path === path);

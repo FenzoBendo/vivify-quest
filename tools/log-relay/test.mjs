@@ -55,6 +55,10 @@ check("bad version refused", (await post({ ...good, version: "<script>" })).stat
 check("bad upload id refused", (await post({ ...good, upload: "../x" })).status === 400);
 check("too many files refused", (await post({ ...good, files: Array(13).fill(good.files[0]) })).status === 400);
 check("too much text refused", (await post({ ...good, files: [{ name: "VivifyReport.txt", text: "a".repeat(4.6 * 1024 * 1024) }] })).status === 413);
+r = await post({ ...good, upload: "1123456789abcdef", files: [{ name: "VivifySession-part001.txt", from: 0, text: "session chunk" }, { name: "vivify_global-p4-part002.txt", from: 1536, text: "global chunk" }] });
+check("split session and global log parts are accepted", r.status === 200);
+r = await post({ ...good, upload: "2123456789abcdef", files: [{ name: "VivifySession-part1000.txt", text: "bad part suffix" }] });
+check("invalid split suffix is refused", r.status === 400);
 check("unknown GET route returns 404", (await worker.fetch(new Request("https://relay/"), env)).status === 404);
 check("no token refused", (await worker.fetch(new Request("https://relay/", { method: "POST", body: "{}" }), {})).status === 500);
 console.log(fails + " failure(s)"); process.exit(fails ? 1 : 0);
