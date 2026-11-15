@@ -16,10 +16,24 @@ Expressive-inspired interface. It includes:
 - A responsive layout designed for desktop and phone screens.
 - Automatic refresh every 15 seconds.
 
-The read-only dashboard API exposes `GET /api/health`, `GET /api/logs`,
-and `GET /api/log?path=...`. It reads only the public `LOGS` branch. The
-GitHub write token remains in the Cloudflare Worker secret and is never sent
-to the browser.
+The dashboard API exposes:
+- `GET /api/health` for relay status and aggregate counts.
+- `GET /api/logs` to list uploads, with optional `?date=YYYY-MM-DD` and
+  `?upload=<upload-id>` filters.
+- `GET /api/log?path=<encoded-repository-path>` to read one log as plain text.
+- `GET /api/log?path=<encoded-repository-path>&download=1` to download one
+  log as an attachment.
+
+Each file in an upload's detail drawer has a Download action. The dashboard
+continues to support in-browser viewing as well. Reads are limited to files
+listed in the relay's log index; the GitHub write token remains in the Worker
+secret and is never sent to the browser.
+
+A scheduled Worker task runs hourly and removes log files whose upload date is
+more than 30 days old from the active `LOGS` branch. Expiration is based on
+the UTC date in the stored log path. This is branch-level retention: because
+Git stores prior commits, an expired file can remain in old commit history.
+
 
 ## Set up and deploy
 
