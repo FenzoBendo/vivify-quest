@@ -30,7 +30,9 @@ async function github(env, method, path, body) {
   const response = await fetch(`https://api.github.com/repos/${repo}${path}`, {
     method,
     headers: {
-      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+      // Public LOGS-branch reads must work without the optional write secret.
+      // Do not send `Bearer undefined`: GitHub treats it as invalid credentials.
+      ...(env.GITHUB_TOKEN ? { Authorization: `Bearer ${env.GITHUB_TOKEN}` } : {}),
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
       "User-Agent": "vivify-log-relay",
