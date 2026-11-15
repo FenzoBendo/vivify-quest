@@ -127,8 +127,13 @@ export default {
       const path = url.searchParams.get("path") || "";
       if (!/^logs\/\d{4}-\d{2}-\d{2}\/[^/]+\/(VivifyCrash|VivifyReport|RecoveryMaps|PlayingLevel)\.txt$|^logs\/\d{4}-\d{2}-\d{2}\/[^/]+\/vivify_global(-p\d{1,3})?\.txt$/.test(path)) return json(400, { error: "Invalid log path" });
       try {
-        const blob = await github(env, "GET", `/contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(env.BRANCH || "LOGS")}`);
-        if (blob.status !== 200) return json(blob.status === 404 ? 404 : 502, { error: "Log file unavailable" });
+        const index = await readLogs(env);
+        const file = index.uploads.flatMap((upload) => upload.files).find((entry) => entry.path === path);
+        if (!file) return json(404, { error: "Log file unavailable" });
+        // Use the Git blob endpoint: the Contents endpoint stops returning JSON
+        // content for files larger than 1 MB, while Vivify permits larger logs.
+        const blob = await github(env, "GET", `/git/blobs/${file.sha}`);
+        if (blob.status !== 200 || typeof blob.data.content !== "string") return json(502, { error: "Log file unavailable" });
         const content = atob(blob.data.content.replace(/\n/g, ""));
         const bytes = Uint8Array.from(content, (c) => c.charCodeAt(0));
         return new Response(new TextDecoder().decode(bytes), { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
