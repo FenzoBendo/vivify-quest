@@ -46,6 +46,8 @@ UploadConfig gConfig;
 std::mutex gConfigMutex;
 std::atomic<bool> gConfigured{false};
 std::atomic<bool> gUploadRunning{false};
+std::atomic<bool> gAutoPending{false};
+std::atomic<bool> gManualPending{false};
 
 std::map<std::string, std::uintmax_t> ReadState(std::filesystem::path const& path) {
   std::map<std::string, std::uintmax_t> state;
@@ -252,7 +254,8 @@ void BeginUpload(bool manual) {
     return;
   }
   if (gUploadRunning.exchange(true)) {
-    PaperLogger.info("Vivify Send Logs: an upload is already running");
+    (manual ? gManualPending : gAutoPending).store(true);
+    PaperLogger.info("Vivify Send Logs: queued behind the current upload");
     return;
   }
   UploadConfig config;
@@ -261,13 +264,19 @@ void BeginUpload(bool manual) {
     config = gConfig;
   }
   std::thread([config = std::move(config), manual]() {
-    try {
-      Run(config, manual);
-    } catch (std::exception const& error) {
-      PaperLogger.warn("Vivify Send Logs: failed: {}", error.what());
-    } catch (...) {
-      PaperLogger.warn("Vivify Send Logs: failed");
-    }
+    bool nextManual = manual;
+    do {
+      try {
+        Run(config, nextManual);
+      } catch (std::exception const& error) {
+        PaperLogger.warn("Vivify Send Logs: failed: {}", error.what());
+      } catch (...) {
+        PaperLogger.warn("Vivify Send Logs: failed");
+      }
+      if (gManualPending.exchange(false)) nextManual = true;
+      else if (gAutoPending.exchange(false)) nextManual = false;
+      else break;
+    } while (true);
     gUploadRunning.store(false);
   }).detach();
 }
