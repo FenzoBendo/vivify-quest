@@ -11,6 +11,28 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.21] - 2026-11-15
+
+Not tried on a headset.
+
+### Changed
+- The conversion progress bar and the updater's messages are now at the top
+  of the Vivify settings, under the version line, instead of under PC Maps.
+- **Update Vivify** asks for a second press within 5 s when the build in use
+  was installed in game with **Install Dev Build** or **Install Nightly**,
+  since the stable release can be older. Installing a release clears this.
+  A dev build installed before 0.15.21 is not recognised.
+- A map whose shaders the Separate-Eye Renderer cannot all convert (seen with
+  Transmission, 18 of 19) now plays with the normal renderer instead of
+  having its play button blocked.
+
+### Fixed
+- Send Logs: a refused upload now logs the relay's reason and the file names
+  it carried (an upload failed with a bare "http 400"); the relay names the
+  file it rejects.
+- The relay's tests (red on main since the fake GitHub API stopped recording
+  `base_tree`).
+
 ## [0.15.20] - 2026-11-14
 
 Not tried on a headset.

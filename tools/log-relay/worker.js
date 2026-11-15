@@ -251,14 +251,16 @@ export default {
       const raw = await request.text();
       if (raw.length > MAX_BODY) return reply(413, "too large");
       let body;
-      try { body = JSON.parse(raw); } catch { return reply(400, "not JSON"); }
+      try { body = JSON.parse(raw); } catch (error) { return reply(400, "not JSON: " + String(error.message).slice(0, 120)); }
       const version = String(body.version || "");
       const upload = String(body.upload || "");
       if (!VERSION.test(version) || !UPLOAD.test(upload)) return reply(400, "bad version or upload id");
       if (!Array.isArray(body.files) || body.files.length === 0 || body.files.length > MAX_FILES) return reply(400, "bad file list");
       let total = 0;
       for (const file of body.files) {
-        if (!file || typeof file.name !== "string" || !NAME.test(file.name) || typeof file.text !== "string") return reply(400, "bad file");
+        if (!file || typeof file.name !== "string") return reply(400, "bad file: no name");
+        if (!NAME.test(file.name)) return reply(400, "bad file name: " + file.name.slice(0, 80));
+        if (typeof file.text !== "string") return reply(400, "bad file: no text for " + file.name);
         total += file.text.length;
       }
       if (total > MAX_TEXT) return reply(413, "too much text");

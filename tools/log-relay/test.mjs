@@ -31,7 +31,7 @@ globalThis.fetch = async (url, init) => {
       else if (at >= 0) inherited[at] = entry;
       else inherited.push(entry);
     }
-    trees[sha] = { tree: inherited };
+    trees[sha] = { tree: inherited, base_tree: body.base_tree };
     return json(201, { sha });
   }
   if (init.method === "POST" && path === "/git/commits") { const sha = "c" + ++n; commits[sha] = { tree: { sha: body.tree }, parents: body.parents }; return json(201, { sha }); }
