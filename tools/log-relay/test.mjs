@@ -43,6 +43,7 @@ const first = refSha;
 r = await worker.fetch(new Request("https://relay/api/logs"), env);
 const index = await r.json();
 check("dashboard API lists uploaded bundles", r.status === 200 && index.uploads.length === 1 && index.uploads[0].files.length === 2 && index.totalBytes === 8);
+check("configured token authenticates GitHub reads", authHeaders.at(-1) === "Bearer x");
 check("health endpoint reports upload and file counts", (await worker.fetch(new Request("https://relay/api/health"), env)).status === 200);
 {
   const health = await (await worker.fetch(new Request("https://relay/api/health"), env)).json();
