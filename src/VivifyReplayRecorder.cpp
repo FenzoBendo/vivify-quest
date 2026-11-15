@@ -230,9 +230,10 @@ void HeadEnteredObstacle(UnityW<ObstacleController> obstacle) {
 
 void FetchHmd() {
 #ifdef VIVIFY_HAS_SYSTEM_PROPERTIES
+  // __system_property_read_callback needs API 26; the mod targets 24.
   if (auto const* prop = __system_property_find("ro.product.model")) {
-    __system_property_read_callback(
-        prop, [](void*, char const*, char const* value, uint32_t) { hmd = value; }, nullptr);
+    char value[PROP_VALUE_MAX] = {};
+    if (__system_property_read(prop, nullptr, value) > 0) hmd = value;
   }
 #endif
 }
