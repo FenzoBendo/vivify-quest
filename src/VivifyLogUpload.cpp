@@ -192,10 +192,7 @@ void Run(UploadConfig config, bool manual) {
       total += entry.text.size();
       from += entry.text.size();
       pending.push_back(std::move(entry));
-      if (!manual) {
-        next[sourceName] = from;
-        break;
-      }
+      if (!manual) break;
     }
     if (manual && from >= size) manualCompleted[sourceName] = size;
     if (total >= totalLimit) break;
