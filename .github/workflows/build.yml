@@ -38,6 +38,10 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Send Logs (0.15.20): the log relay's address (tools/log-relay), set as a
+    # repository variable. Unset: the built mod sends no logs.
+    env:
+      VIVIFY_LOG_RELAY_URL: ${{ vars.VIVIFY_LOG_RELAY_URL }}
 
     steps:
     - name: Checkout

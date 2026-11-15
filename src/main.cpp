@@ -3,6 +3,7 @@
 #include "VivifySeparateEye.hpp"
 #include "VivifyGlobalLog.hpp"
 #include "VivifyCrashReport.hpp"
+#include "VivifyLogUpload.hpp"
 #include "bsml/shared/BSML/Components/ModalView.hpp"
 #include "bsml/shared/BSML/Components/Settings/ToggleSetting.hpp"
 #include <sstream>
@@ -112,6 +113,14 @@ constexpr std::string_view kGeometryBothEyesConfigKey = "geometryEffectsFlatV2";
 constexpr std::string_view kGeometryEyeCopyConfigKey = "geometryRightEyeCopy";
 constexpr std::string_view kPcShadersForEmptyConfigKey = "pcShadersForEmptyQuestShaders";
 constexpr std::string_view kStandInShaderNameConfigKey = "standInShaderName";
+// Send Logs (0.15.20), and the address of the log relay that commits them to
+// the LOGS branch. The address comes from the build (repository variable
+// VIVIFY_LOG_RELAY_URL) unless the config sets one.
+constexpr std::string_view kSendLogsConfigKey = "sendLogs";
+constexpr std::string_view kLogRelayUrlConfigKey = "logRelayUrl";
+#ifndef VIVIFY_LOG_RELAY_URL
+#define VIVIFY_LOG_RELAY_URL ""
+#endif
 constexpr std::string_view kEffectResolutionConfigKey = "effectResolutionPercent";
 // Offscreen Culling is off by default since 0.15.3, under a new key so that
 // everyone's saved "on" from earlier builds is reset once: an animator frozen
@@ -128,6 +137,8 @@ constexpr std::string_view kExperimentalSeparateEyeKey = "experimentalSeparateEy
 bool gUniformTriangleTessellation = false;
 constexpr std::string_view kUniformTriangleTessellationKey = "uniformTriangleTessellation";
 bool gVivifyDebugLogging = false;
+bool gSendLogs = true;
+std::string gLogRelayUrl;
 bool gDisableBeat0FilmgrainBlit = false;
 bool gDisableAllBlits = false;
 bool gDisableCreateCameraDepth = false;
@@ -662,6 +673,10 @@ char const* SettingHint(std::u16string_view label) {
        "then stay still."},
       {u"Convert All PC Bundles",
        "Converts every installed PC-only Vivify map now, so they are ready to play. Progress shows above."},
+      {u"Send Logs",
+       "With Debug Logging also on: when the game starts, what Vivify logged since the last time is sent to the "
+       "public LOGS branch of the Vivify Quest repository, for the developers. Map names, your mods and headset "
+       "model are in it. Off sends nothing."},
       {u"Debug Logging",
        "Writes much more detail to the Vivify log files. Turn it on before reproducing a problem you want to "
        "report; it costs some performance."},
@@ -1206,6 +1221,8 @@ void RegisterModSettings() {
         header("Diagnostics");
         toggle(u"Debug Logging", GetVivifyDebugLogging(),
                [](bool value) { SetBoolConfigValue(kVivifyDebugLoggingConfigKey, value, gVivifyDebugLogging); });
+        toggle(u"Send Logs", gSendLogs,
+               [](bool value) { SetBoolConfigValue(kSendLogsConfigKey, value, gSendLogs); });
         // paperlog output is not reachable without adb, so Vivify writes its own
         // plain-text files next to its data, all in this one folder.
         FixTextHeight(BSML::Lite::CreateText(parent, StringW("<size=70%>Logs in " + std::string(kVivifyLogDir) +
@@ -1463,6 +1480,9 @@ bool GetMultipassRenderingEnabled() {
 bool GetExperimentalSeparateEye() { return !kLiteBuild && gExperimentalSeparateEye; }
 bool GetUniformTriangleTessellation() { return !kLiteBuild && gUniformTriangleTessellation; }
 
+bool GetSendLogs() {
+  return gSendLogs;
+}
 bool GetVivifyDebugLogging() {
   return gVivifyDebugLogging;
 }
@@ -1815,6 +1835,8 @@ void EnsureConfigDefaults() {
   needsWrite |= EnsureBoolConfigValue(kUniformTriangleTessellationKey, false, gUniformTriangleTessellation);
 
   needsWrite |= EnsureBoolConfigValue(kVivifyDebugLoggingConfigKey, false, gVivifyDebugLogging);
+  needsWrite |= EnsureBoolConfigValue(kSendLogsConfigKey, true, gSendLogs);
+  needsWrite |= EnsureStringConfigValue(kLogRelayUrlConfigKey, std::string(), gLogRelayUrl);
   needsWrite |= EnsureBoolConfigValue(kDisableBeat0FilmgrainBlitConfigKey, false, gDisableBeat0FilmgrainBlit);
   needsWrite |= EnsureBoolConfigValue(kDisableAllBlitsConfigKey, false, gDisableAllBlits);
   needsWrite |= EnsureBoolConfigValue(kDisableCreateCameraDepthConfigKey, false, gDisableCreateCameraDepth);
@@ -1956,6 +1978,13 @@ MOD_EXTERN_FUNC void late_load() noexcept {
   }
   try {
     LogLoadedMods();
+  } catch (...) {
+  }
+  // Send Logs (0.15.20): with Debug Logging on too, what was logged since the
+  // last upload goes to the log relay, in the background.
+  try {
+    std::string const relay = gLogRelayUrl.empty() ? std::string(VIVIFY_LOG_RELAY_URL) : gLogRelayUrl;
+    Vivify::LogUpload::StartIfEnabled(std::string(kVivifyLogDir), relay, std::string(VERSION), kLiteBuild);
   } catch (...) {
   }
 }
