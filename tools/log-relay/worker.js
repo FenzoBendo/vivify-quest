@@ -156,9 +156,8 @@ export default {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/api/health") {
       try {
-        const data = await readLogs(env);
-        // writeReady: whether uploads can be saved. Reads work without the
-        // token (public repository), so "ok" alone did not say that.
+        const data = await readLogsCached(env);
+        // writeReady indicates that the upload secret is configured.
         return json(200, { ok: true, writeReady: Boolean(env.GITHUB_TOKEN), uploadCount: data.uploads.length, fileCount: data.uploads.reduce((n, u) => n + u.files.length, 0), totalBytes: data.totalBytes, updatedAt: new Date().toISOString() });
       } catch (error) { return json(502, { error: error.message }); }
     }
