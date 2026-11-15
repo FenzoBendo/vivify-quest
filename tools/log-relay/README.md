@@ -44,9 +44,16 @@ to the browser.
    deployed `workers.dev` address. Builds from then on send logs to it.
    A player can also set `logRelayUrl` in Vivify's config.
 
-For local dashboard development, run `npm run dev`. The API routes are
-served by the deployed Worker, so use `npm run build` and `wrangler dev`
-when testing the complete stack.
+For local development, build once and start the Worker in one terminal:
+
+```sh
+npm run build
+npx wrangler dev
+```
+
+Then start Vite in a second terminal with `npm run dev`. Vite proxies
+`/api/*` requests to the local Worker at `127.0.0.1:8787`, while serving the
+dashboard with hot reload.
 
 ## Test
 
