@@ -789,6 +789,8 @@ void Runtime::ResetRuntime(std::string_view reason) {
   _inMultiplayerGameplay = false;
   _isResetting = false;
   step("done");
+  // Upload only after the report and all teardown breadcrumbs have been flushed.
+  if (levelWasRunning) LogUpload::UploadAfterLevelEnd();
 }
 
 }
