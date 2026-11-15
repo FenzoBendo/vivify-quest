@@ -1,6 +1,7 @@
 #include "VivifyRuntimeInternal.hpp"
 #include "VivifySeparateEye.hpp"
 #include "VivifyRecovery.hpp"
+#include "VivifyLogUpload.hpp"
 #include "GlobalNamespace/StandardLevelDetailView.hpp"
 #include "HMUI/HoverHint.hpp"
 #include "UnityEngine/UI/Button.hpp"
