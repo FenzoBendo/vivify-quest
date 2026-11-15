@@ -89,7 +89,7 @@ function render() {
     <div class="viewer" id="viewer" hidden><div class="viewer-card"><div class="viewer-head"><strong id="viewer-name">Log file</strong><button class="icon-button" id="viewer-close" aria-label="Close">${icon('close')}</button></div><pre id="viewer-content">Loading…</pre></div></div>
   `;
   document.querySelector('#refresh')?.addEventListener('click', () => load(true));
-  document.querySelector<HTMLInputElement>('#search')?.addEventListener('input', e => { search = (e.target as HTMLInputElement).value; const pos = (e.target as HTMLInputElement).selectionStart; render(); const input = document.querySelector<HTMLInputElement>('#search'); input?.focus(); input?.setSelectionRange(pos,pos); });
+  document.querySelector<HTMLInputElement>('#search')?.addEventListener('input', e => { search = (e.target as HTMLInputElement).value; const pos = (e.target as HTMLInputElement).selectionStart ?? 0; render(); const input = document.querySelector<HTMLInputElement>('#search'); input?.focus(); input?.setSelectionRange(pos,pos); });
   document.querySelectorAll<HTMLElement>('[data-upload]').forEach(el => el.addEventListener('click', () => { selected = el.dataset.upload!; render(); }));
   document.querySelector('#close-drawer')?.addEventListener('click', () => { selected = null; render(); });
   document.querySelector('#overlay')?.addEventListener('click', e => { if (e.target === e.currentTarget) { selected = null; render(); } });
