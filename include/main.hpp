@@ -30,6 +30,8 @@ bool GetMultipassRenderingEnabled();
 bool GetExperimentalSeparateEye();
 bool GetUniformTriangleTessellation();
 bool GetVivifyDebugLogging();
+// Send Logs (0.15.20); only acts with Debug Logging on too.
+bool GetSendLogs();
 bool GetDisableBeat0FilmgrainBlit();
 bool GetDisableAllBlits();
 bool GetDisableCreateCameraDepth();

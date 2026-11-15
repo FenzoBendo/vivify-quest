@@ -40,6 +40,11 @@ set_property(SOURCE src/VivifyDepthCopy.cpp APPEND PROPERTY OBJECT_DEPENDS "${CM
 # so CMake configures again when the QMOD is packed; reading only the
 # environment then turned a lite build back into the full one, and every
 # "Vivify Lite" QMOD up to 0.15.0 held the full library (0.15.1).
+# Send Logs (0.15.20): the log relay's address, from the repository variable
+# VIVIFY_LOG_RELAY_URL (build.yml). Empty or unset: the mod sends nothing.
+if(DEFINED ENV{VIVIFY_LOG_RELAY_URL} AND NOT "$ENV{VIVIFY_LOG_RELAY_URL}" STREQUAL "")
+	add_compile_definitions(VIVIFY_LOG_RELAY_URL="$ENV{VIVIFY_LOG_RELAY_URL}")
+endif()
 if(DEFINED ENV{VIVIFY_LITE})
 	set(VIVIFY_LITE "$ENV{VIVIFY_LITE}" CACHE STRING "1 for the lite build" FORCE)
 endif()

@@ -15,6 +15,26 @@ conversion cache version, and cached conversions are redone automatically.
 
 Not tried on a headset.
 
+### Added
+- **Send Logs** (Diagnostics, on by default). When the game starts with both
+  Send Logs and **Debug Logging** on, what Vivify logged since the last upload
+  is sent in the background to the log relay. The relay commits it to the
+  repository's `LOGS` branch (its own branch, no history shared with `main`).
+  It sends:
+  - the new part of each global log file, up to 1.5 MB per file and 4 MB per
+    upload;
+  - the report, crash and recovery files.
+
+  `LogUpload.state` remembers how far each file has been sent. Debug Logging
+  is off by default, so only players who turn it on send anything, and the
+  hover hint says the logs go public.
+- **Log relay** (`tools/log-relay`): a Cloudflare Worker that holds the GitHub
+  token, so the mod never carries one. It takes only Vivify's own log file
+  names, at most 12 files and 4.5 MB per upload, one commit each. A build
+  sends nothing until the repository variable `VIVIFY_LOG_RELAY_URL` holds
+  the relay's address. Setup is in `tools/log-relay/README.md`, and
+  `node test.mjs` there tests it against a fake GitHub API (in CI).
+
 ### Changed
 - **Converted bundles are kept in one folder per map**:
   `Mods/Vivify/ConvertedBundles/<map>/`. Each map's folder holds the
