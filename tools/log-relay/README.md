@@ -31,7 +31,7 @@ secret and is never sent to the browser.
 
 A scheduled Worker task runs hourly and removes log files whose upload date is
 more than 30 days old from the active `LOGS` branch. Expiration is based on
-the UTC date in the stored log path. This is branch-level retention: because
+the upload's UTC timestamp encoded in its stored path. This is branch-level retention: because
 Git stores prior commits, an expired file can remain in old commit history.
 
 
@@ -71,8 +71,9 @@ dashboard with hot reload.
 
 ## Test
 
-Run `node test.mjs` to test upload validation and GitHub branch commits against
-a fake GitHub API. Run `npm run build` to type-check and build the dashboard.
+Run `node test.mjs` to test upload validation, log downloads, listing filters,
+scheduled retention, and GitHub branch commits against a fake GitHub API.
+Run `npm run build` to type-check and build the dashboard.
 
 ## Troubleshooting
 
