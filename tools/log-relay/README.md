@@ -1,45 +1,61 @@
 # Vivify log relay
 
-**Send Logs** in Vivify's settings uploads what Vivify logged since the last
-upload. It only does this when the game starts with both Send Logs and Debug
-Logging on. Uploads go to this relay, which commits them to the repository's
-`LOGS` branch, under `logs/<date>/<time>_<version>_<upload id>/`.
+The relay receives the mod's diagnostic uploads and stores them on the
+repository's `LOGS` branch. It also hosts a responsive dashboard for browsing
+those uploads.
 
-The GitHub token stays in the relay. The mod only knows the relay's address, so
-pulling it out of the QMOD gives nobody write access to the repository.
+## Dashboard
 
-The relay only takes Vivify's own log files, at most 12 files and 4.5 MB of
-text per upload. `LOGS` is created on the first upload as a branch of its own,
-with no history shared with `main`.
+The dashboard is a Vite + TypeScript application with a hand-built Material 3
+Expressive-inspired interface. It includes:
 
-## Set up (once)
+- A live upload counter and summary of received files and stored data.
+- A 14-day upload traffic graph.
+- A newest-first upload list with search and per-upload file details.
+- An in-browser plain-text log viewer.
+- A responsive layout designed for desktop and phone screens.
+- Automatic refresh every 15 seconds.
 
-1. **Make a token.** On GitHub, open Settings → Developer settings →
-   Fine-grained tokens, and generate one with:
-   - Repository access: only `trail-b1az3r/vivify-quest`
-   - Permissions: Contents **Read and write**, nothing else
+The read-only dashboard API exposes `GET /api/health`, `GET /api/logs`,
+and `GET /api/log?path=...`. It reads only the public `LOGS` branch. The
+GitHub write token remains in the Cloudflare Worker secret and is never sent
+to the browser.
 
-   GitHub cannot limit a token to a single branch, so protect `main`
-   (Settings → Branches → add a rule for `main`). The token can then only
-   reach the other branches.
-2. **Deploy the relay** with a free Cloudflare account and Node:
-   ```
+## Set up and deploy
+
+1. Create a fine-grained GitHub token with access only to
+   `trail-b1az3r/vivify-quest` and **Contents: Read and write** permission.
+   Protect `main` with a branch rule; the relay writes to the separate
+   `LOGS` branch.
+2. Install dependencies and build the dashboard:
+   ```sh
    cd tools/log-relay
+   npm install
+   npm run build
+   ```
+3. Deploy the Worker:
+   ```sh
    npx wrangler login
-   npx wrangler secret put GITHUB_TOKEN     # paste the token
+   npx wrangler secret put GITHUB_TOKEN
    npx wrangler deploy
    ```
-   `deploy` prints the address, for example
-   `https://vivify-log-relay.<you>.workers.dev`.
-3. **Give the builds the address.** In the repository, open Settings →
-   Secrets and variables → Actions → **Variables**, and add
-   `VIVIFY_LOG_RELAY_URL` with that address. Builds from then on send to it.
-   A build without it sends nothing and says so in its log. A player can also
-   set `"logRelayUrl"` in Vivify's config file.
+   Wrangler deploys the built `dist/` dashboard alongside the Worker.
+4. Set the repository Actions variable `VIVIFY_LOG_RELAY_URL` to the
+   deployed `workers.dev` address. Builds from then on send logs to it.
+   A player can also set `logRelayUrl` in Vivify's config.
+
+For local development, build once and start the Worker in one terminal:
+
+```sh
+npm run build
+npx wrangler dev
+```
+
+Then start Vite in a second terminal with `npm run dev`. Vite proxies
+`/api/*` requests to the local Worker at `127.0.0.1:8787`, while serving the
+dashboard with hot reload.
 
 ## Test
 
-`node test.mjs` runs the relay against a fake GitHub API. It checks:
-- the first upload creates the branch, and later uploads stack on it;
-- an upload retries when two land at once;
-- bad names, sizes and fields are refused.
+Run `node test.mjs` to test upload validation and GitHub branch commits against
+a fake GitHub API. Run `npm run build` to type-check and build the dashboard.
