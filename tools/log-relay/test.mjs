@@ -22,7 +22,18 @@ globalThis.fetch = async (url, init) => {
     const content = blobs[path.split("/").pop()];
     return content === undefined ? json(404, {}) : json(200, { content: Buffer.from(content).toString("base64"), encoding: "base64" });
   }
-  if (init.method === "POST" && path === "/git/trees") { const sha = "t" + ++n; trees[sha] = body; return json(201, { sha }); }
+  if (init.method === "POST" && path === "/git/trees") {
+    const sha = "t" + ++n;
+    const inherited = body.base_tree ? (trees[body.base_tree]?.tree || []).map(entry => ({ ...entry })) : [];
+    for (const entry of body.tree || []) {
+      const at = inherited.findIndex(item => item.path === entry.path);
+      if (entry.sha === null) { if (at >= 0) inherited.splice(at, 1); }
+      else if (at >= 0) inherited[at] = entry;
+      else inherited.push(entry);
+    }
+    trees[sha] = { tree: inherited };
+    return json(201, { sha });
+  }
   if (init.method === "POST" && path === "/git/commits") { const sha = "c" + ++n; commits[sha] = { tree: { sha: body.tree }, parents: body.parents }; return json(201, { sha }); }
   if (init.method === "POST" && path === "/git/refs") { refSha = body.sha; return json(201, {}); }
   if (init.method === "PATCH" && path === "/git/refs/heads/LOGS") {
@@ -58,6 +69,11 @@ check("public dashboard reads work without a write token", r.status === 200 && a
 const logPath = index.uploads[0].files[0].path;
 r = await worker.fetch(new Request("https://relay/api/log?path=" + encodeURIComponent(logPath)), env);
 check("dashboard API reads an uploaded log", r.status === 200 && (await r.text()) === "hello");
+const download = await worker.fetch(new Request("https://relay/api/log?path=" + encodeURIComponent(logPath) + "&download=1"), env);
+check("log download endpoint sends an attachment filename", download.status === 200 && download.headers.get("Content-Disposition") === 'attachment; filename="VivifyReport.txt"');
+const filtered = await (await worker.fetch(new Request("https://relay/api/logs?upload=" + encodeURIComponent(index.uploads[0].id)), env)).json();
+check("log listing can filter to one upload", filtered.uploads.length === 1 && filtered.uploads[0].id === index.uploads[0].id);
+check("log listing rejects malformed date filters", (await worker.fetch(new Request("https://relay/api/logs?date=not-a-date"), env)).status === 400);
 check("dashboard rejects paths outside the log allowlist", (await worker.fetch(new Request("https://relay/api/log?path=" + encodeURIComponent("../secrets.txt")), env)).status === 400);
 r = await post(good); check("second upload builds on the branch", r.status === 200 && commits[refSha].parents[0] === first && trees[commits[refSha].tree.sha].base_tree);
 raceOnce = true; r = await post(good); check("a race retries on top of the moved branch", r.status === 200 && commits[refSha].parents[0] === "cX");
@@ -73,4 +89,14 @@ r = await post({ ...good, upload: "2123456789abcdef", files: [{ name: "VivifySes
 check("invalid split suffix is refused", r.status === 400);
 check("unknown GET route returns 404", (await worker.fetch(new Request("https://relay/"), env)).status === 404);
 check("no token refused", (await worker.fetch(new Request("https://relay/api/upload", { method: "POST", body: "{}" }), {})).status === 500);
+
+{
+  const currentTree = trees[commits[refSha].tree.sha];
+  currentTree.tree.push({ path: "logs/2000-01-01/expired_upload/VivifyReport.txt", content: "expired log" });
+  let retentionPromise;
+  await worker.scheduled({}, env, { waitUntil: promise => { retentionPromise = promise; } });
+  await retentionPromise;
+  const afterRetention = await (await worker.fetch(new Request("https://relay/api/logs"), env)).json();
+  check("scheduled retention removes logs older than 30 days", !afterRetention.uploads.some(item => item.date === "2000-01-01"));
+}
 console.log(fails + " failure(s)"); process.exit(fails ? 1 : 0);
