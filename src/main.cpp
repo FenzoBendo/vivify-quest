@@ -4,6 +4,7 @@
 #include "VivifyGlobalLog.hpp"
 #include "VivifyCrashReport.hpp"
 #include "VivifyLogUpload.hpp"
+#include "bsml/shared/BSML.hpp"
 #include "bsml/shared/BSML/Components/ModalView.hpp"
 #include "bsml/shared/BSML/Components/Settings/ToggleSetting.hpp"
 #include <sstream>
@@ -1985,6 +1986,10 @@ MOD_EXTERN_FUNC void late_load() noexcept {
   try {
     std::string const relay = gLogRelayUrl.empty() ? std::string(VIVIFY_LOG_RELAY_URL) : gLogRelayUrl;
     Vivify::LogUpload::StartIfEnabled(std::string(kVivifyLogDir), relay, std::string(VERSION), kLiteBuild);
+    // BSML places this alongside other mod actions on the main menu's left rail,
+    // not inside Mod Settings.
+    BSML::Register::RegisterMenuButton("Send Logs", "Manually upload Vivify logs (up to 8 MB)",
+                                       [] { Vivify::LogUpload::UploadManual(); });
   } catch (...) {
   }
 }
