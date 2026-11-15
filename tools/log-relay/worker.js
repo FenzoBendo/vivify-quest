@@ -210,7 +210,7 @@ export default {
         const index = await readLogsCached(env);
         const date = url.searchParams.get("date");
         const uploadId = url.searchParams.get("upload");
-        if (date && !/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) return json(400, { error: "Invalid date filter" });
+        if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return json(400, { error: "Invalid date filter" });
         const uploads = index.uploads.filter(item => (!date || item.date === date) && (!uploadId || item.id === uploadId));
         return json(200, { ...index, uploads, totalBytes: uploads.reduce((sum, item) => sum + item.bytes, 0) });
       } catch (error) { return json(502, { error: error.message }); }
