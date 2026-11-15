@@ -32,7 +32,7 @@ globalThis.fetch = async (url, init) => {
   return json(500, {});
 };
 const env = { GITHUB_TOKEN: "x" };
-const post = (obj) => worker.fetch(new Request("https://relay/", { method: "POST", body: JSON.stringify(obj) }), env);
+const post = (obj) => worker.fetch(new Request("https://relay/api/upload", { method: "POST", body: JSON.stringify(obj) }), env);
 const good = { version: "0.15.20", lite: false, upload: "0123456789abcdef", files: [{ name: "VivifyReport.txt", from: 0, text: "hello" }, { name: "vivify_global-p4.txt", from: 10, text: "log" }] };
 let fails = 0; const check = (what, ok) => { console.log((ok ? "ok   " : "FAIL ") + what); if (!ok) fails++; };
 let r = await post(good); let t = await r.text();
@@ -44,6 +44,14 @@ r = await worker.fetch(new Request("https://relay/api/logs"), env);
 const index = await r.json();
 check("dashboard API lists uploaded bundles", r.status === 200 && index.uploads.length === 1 && index.uploads[0].files.length === 2 && index.totalBytes === 8);
 check("health endpoint reports upload and file counts", (await worker.fetch(new Request("https://relay/api/health"), env)).status === 200);
+{
+  const health = await (await worker.fetch(new Request("https://relay/api/health"), env)).json();
+  check("health says uploads can be saved with a token", health.writeReady === true);
+  const bare = await (await worker.fetch(new Request("https://relay/api/health"), {})).json();
+  check("health says uploads cannot be saved without one", bare.writeReady === false);
+}
+check("a POST outside /api is pointed at /api/upload",
+      (await worker.fetch(new Request("https://relay/", { method: "POST", body: JSON.stringify(good) }), env)).status === 404);
 r = await worker.fetch(new Request("https://relay/api/logs"), {});
 check("public dashboard reads work without a write token", r.status === 200 && authHeaders.at(-1) === undefined);
 const logPath = index.uploads[0].files[0].path;
@@ -63,5 +71,5 @@ check("split session and global log parts are accepted", r.status === 200);
 r = await post({ ...good, upload: "2123456789abcdef", files: [{ name: "VivifySession-part1000.txt", text: "bad part suffix" }] });
 check("invalid split suffix is refused", r.status === 400);
 check("unknown GET route returns 404", (await worker.fetch(new Request("https://relay/"), env)).status === 404);
-check("no token refused", (await worker.fetch(new Request("https://relay/", { method: "POST", body: "{}" }), {})).status === 500);
+check("no token refused", (await worker.fetch(new Request("https://relay/api/upload", { method: "POST", body: "{}" }), {})).status === 500);
 console.log(fails + " failure(s)"); process.exit(fails ? 1 : 0);

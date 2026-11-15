@@ -118,7 +118,9 @@ export default {
     if (request.method === "GET" && url.pathname === "/api/health") {
       try {
         const data = await readLogs(env);
-        return json(200, { ok: true, uploadCount: data.uploads.length, fileCount: data.uploads.reduce((n, u) => n + u.files.length, 0), totalBytes: data.totalBytes, updatedAt: new Date().toISOString() });
+        // writeReady: whether uploads can be saved. Reads work without the
+        // token (public repository), so "ok" alone did not say that.
+        return json(200, { ok: true, writeReady: Boolean(env.GITHUB_TOKEN), uploadCount: data.uploads.length, fileCount: data.uploads.reduce((n, u) => n + u.files.length, 0), totalBytes: data.totalBytes, updatedAt: new Date().toISOString() });
       } catch (error) { return json(502, { error: error.message }); }
     }
     if (request.method === "GET" && url.pathname === "/api/logs") {
@@ -140,6 +142,11 @@ export default {
         const bytes = Uint8Array.from(content, (c) => c.charCodeAt(0));
         return new Response(new TextDecoder().decode(bytes), { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
       } catch (error) { return json(502, { error: error.message }); }
+    }
+    // Uploads: POST /api/upload. The root serves the dashboard's static
+    // files and refuses POST (405); only /api/* reaches this worker.
+    if (request.method === "POST" && url.pathname !== "/api/upload" && !url.pathname.startsWith("/api/")) {
+      return reply(404, "POST logs to /api/upload");
     }
     if (request.method === "POST") {
       if (!env.GITHUB_TOKEN) return reply(500, "relay has no GITHUB_TOKEN");

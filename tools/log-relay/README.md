@@ -59,3 +59,15 @@ dashboard with hot reload.
 
 Run `node test.mjs` to test upload validation and GitHub branch commits against
 a fake GitHub API. Run `npm run build` to type-check and build the dashboard.
+
+## Troubleshooting
+
+- `GET /api/health` reports `"writeReady": false`: the Worker has no
+  `GITHUB_TOKEN` secret. Add it (`npx wrangler secret put GITHUB_TOKEN`, or
+  Cloudflare dashboard → Workers → the relay → Settings → Variables and
+  Secrets) and redeploy. The mod checks this before uploading and logs
+  "relay has no GitHub token" instead of sending.
+- Uploads go to `POST /api/upload`. A `POST` to `/` is answered by the
+  dashboard assets (405) on an older Worker, or 404 with a hint on this one.
+- Intermittent 403 from `/api/health` or `/api/logs` means GitHub's
+  anonymous rate limit; it stops once the token secret is set.
