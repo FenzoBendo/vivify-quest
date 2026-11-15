@@ -3,6 +3,9 @@ name = "vivify-log-relay"
 main = "worker.js"
 compatibility_date = "2026-01-01"
 
+[triggers]
+crons = ["17 3 * * *"]
+
 [assets]
 directory = "./dist"
 binding = "ASSETS"
