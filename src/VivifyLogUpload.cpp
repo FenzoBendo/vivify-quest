@@ -52,7 +52,7 @@ std::map<std::string, std::uintmax_t> ReadState(std::filesystem::path const& pat
   std::ifstream in(path);
   std::string line;
   while (std::getline(in, line)) {
-    auto const tab = line.find('\\t');
+    auto const tab = line.find('\t');
     if (tab == std::string::npos) continue;
     try {
       state[line.substr(0, tab)] = std::stoull(line.substr(tab + 1));
@@ -64,7 +64,7 @@ std::map<std::string, std::uintmax_t> ReadState(std::filesystem::path const& pat
 
 void WriteState(std::filesystem::path const& path, std::map<std::string, std::uintmax_t> const& state) {
   std::ofstream out(path, std::ios::trunc);
-  for (auto const& [name, offset] : state) out << name << '\\t' << offset << '\\n';
+  for (auto const& [name, offset] : state) out << name << '\t' << offset << '\n';
 }
 
 // Only Vivify-owned diagnostic files are uploaded. The session file is
@@ -178,7 +178,7 @@ void Run(UploadConfig config, bool manual) {
       std::ifstream in(path, std::ios::binary);
       if (!in) break;
       in.seekg(static_cast<std::streamoff>(from));
-      std::string text(static_cast<size_t>(length), '\\0');
+      std::string text(static_cast<size_t>(length), '\0');
       in.read(text.data(), static_cast<std::streamsize>(length));
       text.resize(static_cast<size_t>(in.gcount()));
       if (text.empty()) break;
