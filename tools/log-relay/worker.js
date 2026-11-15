@@ -32,7 +32,9 @@ async function github(env, method, path, body) {
     headers: {
       // Public LOGS-branch reads must work without the optional write secret.
       // Do not send `Bearer undefined`: GitHub treats it as invalid credentials.
-      ...(env.GITHUB_TOKEN ? { Authorization: `Bearer ${env.GITHUB_TOKEN}` } : {}),
+      ...(env.GITHUB_TOKEN && method !== "GET"
+  ? { Authorization: `Bearer ${env.GITHUB_TOKEN}` }
+  : {}),
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
       "User-Agent": "vivify-log-relay",
