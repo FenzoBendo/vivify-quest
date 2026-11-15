@@ -114,15 +114,31 @@ std::string PartName(std::string const& name, std::uintmax_t offset, bool split)
 // A fresh uncached health request wakes/validates the relay before a manual
 // upload, and bounded retries give transient cold-start/network failures time
 // to clear without risking duplicate log commits.
-bool PrepareRelay(UploadConfig const& config) {
+// The relay's API address for `path`. The relay's root serves its dashboard
+// (static files); only /api/* reaches the worker, so a POST to the bare
+// address the build carries was refused with 405 and no log ever arrived.
+std::string RelayEndpoint(UploadConfig const& config, char const* path) {
   std::string url = config.relayUrl;
   while (!url.empty() && url.back() == '/') url.pop_back();
-  url += "/api/health";
+  // An address that already names an API route is used as it is.
+  if (url.find("/api/") != std::string::npos) url = url.substr(0, url.find("/api/"));
+  return url + path;
+}
+
+bool PrepareRelay(UploadConfig const& config) {
+  std::string const url = RelayEndpoint(config, "/api/health");
   for (int attempt = 0; attempt < 3; ++attempt) {
     WebUtils::URLOptions options(url, std::nullopt, 15);
     options.noEscape = true;
     auto response = WebUtils::Get<WebUtils::StringResponse>(options);
     if (response.IsSuccessful()) {
+      // A relay without its GitHub token can still show the logs (public
+      // reads) but cannot save any: say so instead of uploading into a 500.
+      if (response.responseData && response.responseData->find("\"writeReady\":false") != std::string::npos) {
+        PaperLogger.warn("Vivify Send Logs: the relay is up but has no GitHub token, so it cannot save logs; "
+                         "its owner has to add the GITHUB_TOKEN secret (tools/log-relay/README.md)");
+        return false;
+      }
       PaperLogger.info("Vivify Send Logs: relay health check succeeded");
       return true;
     }
@@ -159,7 +175,7 @@ bool PostBatch(UploadConfig const& config, std::vector<UploadFile> const& batch)
   body.Accept(writer);
   std::span<uint8_t const> const payload(reinterpret_cast<uint8_t const*>(buffer.GetString()), buffer.GetSize());
 
-  WebUtils::URLOptions options(config.relayUrl, WebUtils::URLOptions::QueryMap{},
+  WebUtils::URLOptions options(RelayEndpoint(config, "/api/upload"), WebUtils::URLOptions::QueryMap{},
                                WebUtils::URLOptions::HeaderMap{{"Content-Type", "application/json"}}, false, "",
                                std::nullopt, 90);
   options.noEscape = true;
