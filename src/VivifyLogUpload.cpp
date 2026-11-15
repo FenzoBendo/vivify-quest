@@ -181,8 +181,17 @@ bool PostBatch(UploadConfig const& config, std::vector<UploadFile> const& batch)
   options.noEscape = true;
   auto response = WebUtils::Post<WebUtils::StringResponse>(options, payload);
   if (!response.IsSuccessful()) {
-    PaperLogger.warn("Vivify Send Logs: upload failed (http {}, curl {})",
-                     response.get_HttpCode(), response.get_CurlStatus());
+    // The relay answers a refusal with its reason ("bad file: <name>", "too
+    // much text", ...); without it a 400 in the log says nothing.
+    std::string reason = response.responseData ? *response.responseData : std::string();
+    if (reason.size() > 300) reason.resize(300);
+    PaperLogger.warn("Vivify Send Logs: upload failed (http {}, curl {}): {} [files: {}]",
+                     response.get_HttpCode(), response.get_CurlStatus(), reason.empty() ? "no reply" : reason,
+                     [&] {
+                       std::string names;
+                       for (auto const& entry : batch) names += (names.empty() ? "" : ", ") + entry.name;
+                       return names;
+                     }());
     return false;
   }
   PaperLogger.info("Vivify Send Logs: uploaded {} file part(s), {} KB ({})", batch.size(), total / 1024,

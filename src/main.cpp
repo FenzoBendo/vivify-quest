@@ -139,6 +139,11 @@ bool gUniformTriangleTessellation = false;
 constexpr std::string_view kUniformTriangleTessellationKey = "uniformTriangleTessellation";
 bool gVivifyDebugLogging = false;
 bool gSendLogs = true;
+// Set when the in-game updater installed a dev (latest main) or nightly
+// build, cleared when it installs a release (0.15.21). "Update Vivify" then
+// asks for a second press, since it would go back to an older stable build.
+bool gInstalledPrereleaseBuild = false;
+constexpr std::string_view kInstalledPrereleaseConfigKey = "installedPrereleaseBuild";
 std::string gLogRelayUrl;
 bool gDisableBeat0FilmgrainBlit = false;
 bool gDisableAllBlits = false;
@@ -810,6 +815,16 @@ void SetConvertStatusText(std::string const& text) {
   gConvertStatusText->set_text(StringW(text));
 }
 
+// Updater status for the label; once an install finishes, remembers whether
+// the build now installed is a pre-release (dev or nightly) or a release.
+std::function<void(std::string const&)> UpdaterStatus(bool prerelease) {
+  return [prerelease](std::string const& text) {
+    SetConvertStatusText(text);
+    if (text.rfind("Installed Vivify", 0) == 0)
+      SetBoolConfigValue(kInstalledPrereleaseConfigKey, prerelease, gInstalledPrereleaseBuild);
+  };
+}
+
 // A bar of 30 ticks, filled to done/total, in plain ASCII so the menu font has it.
 std::string ProgressBarText(int done, int total) {
   constexpr int kTicks = 30;
@@ -991,6 +1006,20 @@ void RegisterModSettings() {
         FixTextHeight(
             BSML::Lite::CreateText(parent, StringW(std::string("Vivify ") + VERSION + kBuildLabel + (kLiteBuild ? " (lite)" : ""))),
             1);
+
+        // Conversion progress and updater messages, at the top (0.15.21) so
+        // they are in view whichever button started them.
+        gConvertStatusText = BSML::Lite::CreateText(parent, u"Idle");
+        FixTextHeight(gConvertStatusText.ptr(), 3);
+        // Never wider than the list (0.15.16): a long word with nowhere to
+        // break -- a URL in an updater message -- otherwise widened the whole
+        // list and pushed the settings off to the right.
+        if (auto* layout = gConvertStatusText->get_gameObject()->GetComponent<UnityEngine::UI::LayoutElement*>()) {
+          layout->set_preferredWidth(1.0f);
+          layout->set_flexibleWidth(1.0f);
+        }
+        SetConvertStatusText(Vivify::IsBulkPcBundleConversionRunning() && gConvertStatus == "Idle" ? "Converting..."
+                                                                                                    : gConvertStatus);
 
         // 0.14.29: the everyday settings come first and everything else sits
         // behind "Show Advanced Settings", which hides or shows those widgets
@@ -1179,17 +1208,6 @@ void RegisterModSettings() {
         // A map whose only asset bundle is a PC build has its play button
         // disabled, so it can never be selected into. These convert every
         // installed map in one pass instead.
-        gConvertStatusText = BSML::Lite::CreateText(parent, u"Idle");
-        FixTextHeight(gConvertStatusText.ptr(), 3);
-        // Never wider than the list (0.15.16): a long word with nowhere to
-        // break -- a URL in an updater message -- otherwise widened the whole
-        // list and pushed the settings off to the right.
-        if (auto* layout = gConvertStatusText->get_gameObject()->GetComponent<UnityEngine::UI::LayoutElement*>()) {
-          layout->set_preferredWidth(1.0f);
-          layout->set_flexibleWidth(1.0f);
-        }
-        SetConvertStatusText(Vivify::IsBulkPcBundleConversionRunning() && gConvertStatus == "Idle" ? "Converting..."
-                                                                                                    : gConvertStatus);
         // One progress callback for both buttons; they differ only in whether an
         // already-cached conversion is reused or thrown away first.
         static auto const startConversion = [](bool force) {
@@ -1214,9 +1232,19 @@ void RegisterModSettings() {
         // Installs the newest numbered release in place of this build, for the
         // next start of the game (0.15.12, VivifyUpdater.cpp).
         button(u"Update Vivify", []() {
+          // After a dev or nightly build was installed in game, the newest
+          // release can be older than what runs now: ask for a second press.
+          static std::chrono::steady_clock::time_point armedUntil{};
+          auto const now = std::chrono::steady_clock::now();
+          if (gInstalledPrereleaseBuild && now > armedUntil) {
+            armedUntil = now + std::chrono::seconds(5);
+            SetConvertStatusText("A dev or nightly build was installed in game. Press Update Vivify again "
+                                 "within 5 s to install the stable release instead");
+            return;
+          }
+          armedUntil = {};
           SetConvertStatusText("Checking for an update...");
-          Vivify::Updater::Install(Vivify::Updater::Channel::Stable, "",
-                                   [](std::string const& text) { SetConvertStatusText(text); });
+          Vivify::Updater::Install(Vivify::Updater::Channel::Stable, "", UpdaterStatus(false));
         });
 
         header("Diagnostics");
@@ -1358,13 +1386,11 @@ void RegisterModSettings() {
         advanced(button(u"Force Reconvert All", []() { startConversion(true); }));
         advanced(button(u"Install Nightly", []() {
           SetConvertStatusText("Checking the nightly build...");
-          Vivify::Updater::Install(Vivify::Updater::Channel::Nightly, "",
-                                   [](std::string const& text) { SetConvertStatusText(text); });
+          Vivify::Updater::Install(Vivify::Updater::Channel::Nightly, "", UpdaterStatus(true));
         }));
         advanced(button(u"Install Dev Build", []() {
           SetConvertStatusText("Checking the latest build of main...");
-          Vivify::Updater::Install(Vivify::Updater::Channel::Dev, "",
-                                   [](std::string const& text) { SetConvertStatusText(text); });
+          Vivify::Updater::Install(Vivify::Updater::Channel::Dev, "", UpdaterStatus(true));
         }));
         // The converter is part of the mod, so an older converter means an older
         // build of Vivify: this lists the releases from 0.13.5 on, filled in
@@ -1392,8 +1418,7 @@ void RegisterModSettings() {
             bool const latest = chosenVersion == "Latest";
             SetConvertStatusText("Installing " + chosenVersion + "...");
             Vivify::Updater::Install(latest ? Vivify::Updater::Channel::Stable : Vivify::Updater::Channel::Version,
-                                     latest ? std::string() : chosenVersion,
-                                     [](std::string const& text) { SetConvertStatusText(text); });
+                                     latest ? std::string() : chosenVersion, UpdaterStatus(false));
           }));
         }
         if constexpr (!kLiteBuild) {
@@ -1837,6 +1862,7 @@ void EnsureConfigDefaults() {
 
   needsWrite |= EnsureBoolConfigValue(kVivifyDebugLoggingConfigKey, false, gVivifyDebugLogging);
   needsWrite |= EnsureBoolConfigValue(kSendLogsConfigKey, true, gSendLogs);
+  needsWrite |= EnsureBoolConfigValue(kInstalledPrereleaseConfigKey, false, gInstalledPrereleaseBuild);
   needsWrite |= EnsureStringConfigValue(kLogRelayUrlConfigKey, std::string(), gLogRelayUrl);
   needsWrite |= EnsureBoolConfigValue(kDisableBeat0FilmgrainBlitConfigKey, false, gDisableBeat0FilmgrainBlit);
   needsWrite |= EnsureBoolConfigValue(kDisableAllBlitsConfigKey, false, gDisableAllBlits);
