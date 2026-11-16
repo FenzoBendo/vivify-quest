@@ -11,6 +11,30 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.27] - 2026-11-16
+
+Not tried on a headset.
+
+### Added
+- **Estimated Look** (Advanced, on by default). A material whose shader
+  cannot run on the Quest used to get one plain opaque stand-in, so glows,
+  glass, particles and grass all came out as solid flat surfaces. Vivify now
+  estimates how each one was meant to draw from what the material still
+  carries -- blend factors, Unity keywords, RenderType tag, render queue,
+  depth write, emission and the shader's name -- and picks a stand-in of
+  that kind: alpha-cut, alpha-blended or additive glow (opaque keeps the
+  plain stand-in). Each choice and its reason is logged ("Vivify estimated
+  look: ..."), with a count per level. The texture's tiling and offset now
+  carry over to every stand-in too.
+
+### Notes
+- Shaders: every shader in the uploaded logs that has compiled programs now
+  translates. The two left are empty in the maps themselves: Transmission's
+  `Custom/Circle` and an unnamed shader in the war II contain zero programs
+  in their Windows bundles, so they cannot draw on PC either; the estimated
+  look is what stands in for them. PC Vivify (Aeroluna) has no shader
+  fallback of its own -- it leaves everything to Unity.
+
 ## [0.15.26] - 2026-11-16
 
 Not tried on a headset.

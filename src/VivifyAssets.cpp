@@ -1,6 +1,7 @@
 #include "VivifyRuntimeInternal.hpp"
 #include <regex>
 #include "VivifySeparateEye.hpp"
+#include "VivifyLookEstimate.hpp"
 #include "VivifyDepthCopy.hpp"
 #include "VivifyComponents.hpp"
 #include "VivifyBundleConvert.hpp"
@@ -826,6 +827,9 @@ struct MaterialFallbackState {
   std::optional<UnityEngine::Color> color;
   UnityEngine::Texture* mainTexture = nullptr;
   int renderQueue = -1;
+  // The texture's tiling and offset (0.15.27): a stand-in drew a tiled
+  // texture stretched once across the mesh.
+  std::optional<UnityEngine::Vector2> textureScale, textureOffset;
 };
 
 // True for a colour that would leave the mesh looking blank.
@@ -972,9 +976,10 @@ bool IsSampleableTexture(UnityEngine::Texture* texture) {
   return UnityEngine::SystemInfo::SupportsTextureFormat(texture2d->get_format());
 }
 
-UnityEngine::Texture* ReadMaterialFallbackTexture(UnityEngine::Material* material) {
+UnityEngine::Texture* ReadMaterialFallbackTexture(UnityEngine::Material* material, std::string* propertyName = nullptr) {
   if (!IsManagedAlive(material)) return nullptr;
   if (auto* mainTexture = material->get_mainTexture().unsafePtr(); IsSampleableTexture(mainTexture)) {
+    if (propertyName) *propertyName = "_MainTex";
     return mainTexture;
   }
   auto names = material->GetPropertyNames(UnityEngine::MaterialPropertyType::Texture);
@@ -990,6 +995,7 @@ UnityEngine::Texture* ReadMaterialFallbackTexture(UnityEngine::Material* materia
       continue;
     }
     if (auto* texture = material->GetTexture(name).unsafePtr(); IsSampleableTexture(texture)) {
+      if (propertyName) *propertyName = ToStdString(name);
       return texture;
     }
   }
@@ -999,7 +1005,13 @@ UnityEngine::Texture* ReadMaterialFallbackTexture(UnityEngine::Material* materia
 MaterialFallbackState CaptureMaterialFallbackState(UnityEngine::Material* material) {
   MaterialFallbackState state;
   if (!IsManagedAlive(material)) return state;
-  state.mainTexture = ReadMaterialFallbackTexture(material);
+  std::string textureProperty;
+  state.mainTexture = ReadMaterialFallbackTexture(material, &textureProperty);
+  if (IsManagedAlive(state.mainTexture) && !textureProperty.empty()) {
+    int const id = UnityEngine::Shader::PropertyToID(StringW(textureProperty));
+    state.textureScale = material->GetTextureScale(id);
+    state.textureOffset = material->GetTextureOffset(id);
+  }
   state.color = ReadMaterialFallbackColor(material, IsManagedAlive(state.mainTexture));
   state.renderQueue = material->get_renderQueue();
   return state;
@@ -1029,6 +1041,8 @@ void RestoreMaterialFallbackState(UnityEngine::Material* material, MaterialFallb
     for (int id : textureIds) {
       if (material->HasProperty(id)) {
         material->SetTexture(id, state.mainTexture);
+        if (state.textureScale) material->SetTextureScale(id, *state.textureScale);
+        if (state.textureOffset) material->SetTextureOffset(id, *state.textureOffset);
       }
     }
   }
@@ -3589,9 +3603,71 @@ void Runtime::RepairMaterialShader(UnityEngine::Material* material, std::string_
                      ToStdString(material->get_name()), originalShaderName);
   }
 
+  // Estimated look (0.15.27): instead of the one opaque stand-in for every
+  // material, a stand-in that draws the way the material was meant to --
+  // alpha-cut, alpha-blended or additive -- worked out from the blend
+  // factors, keywords, RenderType tag, queue and shader name the material
+  // still carries. Opaque estimates keep the generic stand-in.
+  UnityEngine::Shader* estimated = nullptr;
+  LookEstimate::Estimate estimate;
+  if (usingGenericStandIn && GetEstimatedLook()) {
+    LookEstimate::Inputs inputs;
+    inputs.shaderName = originalShaderName;
+    inputs.renderQueue = fallbackState.renderQueue;
+    auto readFloat = [material](char16_t const* name) -> std::optional<float> {
+      int const id = UnityEngine::Shader::PropertyToID(StringW(std::u16string_view(name)));
+      if (!material->HasProperty(id)) return std::nullopt;
+      return material->GetFloat(id);
+    };
+    if (auto v = readFloat(u"_SrcBlend")) inputs.srcBlend = static_cast<int>(std::lround(*v));
+    if (auto v = readFloat(u"_DstBlend")) inputs.dstBlend = static_cast<int>(std::lround(*v));
+    inputs.zWrite = readFloat(u"_ZWrite");
+    inputs.renderType = ToStdString(material->GetTag(StringW("RenderType"), false, StringW("")));
+    if (auto keywords = material->get_shaderKeywords()) {
+      for (auto keyword : keywords) if (keyword) inputs.keywords.push_back(ToStdString(keyword));
+    }
+    static int const emissionId = UnityEngine::Shader::PropertyToID(u"_EmissionColor");
+    inputs.hasEmission = material->HasProperty(emissionId) && !IsBlankEmission(material->GetColor(emissionId));
+    estimate = LookEstimate::Classify(inputs);
+    EnsureGameShaderIndex();
+    for (auto name : LookEstimate::Candidates(estimate.look)) {
+      auto const key = NormalizeAssetKey(std::string(name));
+      UnityEngine::Shader* candidate = nullptr;
+      if (auto it = _gameShadersByName.find(key); it != _gameShadersByName.end()) candidate = it->second;
+      if (!IsAlive(candidate)) candidate = UnityEngine::Shader::Find(StringW(std::string(name))).unsafePtr();
+      if (IsAlive(candidate) && candidate->get_isSupported()) {
+        estimated = candidate;
+        break;
+      }
+    }
+    _estimatedLooks[static_cast<size_t>(estimate.look)]++;
+    if (!IsAlive(estimated) && estimate.look != LookEstimate::Look::Opaque && GetVivifyDebugLogging()) {
+      PaperLogger.info("Vivify estimated look: material '{}' (shader '{}') looks {} ({}), but no {} shader runs "
+                       "here; using the plain stand-in",
+                       ToStdString(material->get_name()), originalShaderName, LookEstimate::LookName(estimate.look),
+                       estimate.reason, LookEstimate::LookName(estimate.look));
+    }
+  }
+  if (IsAlive(estimated)) replacement = estimated;
+
   if (IsAlive(replacement)) {
     material->set_shader(replacement);
     RestoreMaterialFallbackState(material, fallbackState);
+    if (IsAlive(estimated)) {
+      // The Legacy particle shaders double their tint.
+      float const scale = LookEstimate::TintScale(ShaderNameForLog(estimated));
+      static int const tintId = UnityEngine::Shader::PropertyToID(u"_TintColor");
+      if (fallbackState.color.has_value() && material->HasProperty(tintId)) {
+        auto tint = *fallbackState.color;
+        tint.r *= scale; tint.g *= scale; tint.b *= scale;
+        material->SetColor(tintId, tint);
+      }
+      PaperLogger.info("Vivify estimated look: material '{}' (shader '{}') drawn {} with '{}' ({}; texture={}, colour={})",
+                       ToStdString(material->get_name()), originalShaderName, LookEstimate::LookName(estimate.look),
+                       ShaderNameForLog(estimated), estimate.reason, BoolText(IsManagedAlive(fallbackState.mainTexture)),
+                       BoolText(fallbackState.color.has_value()));
+      _fallbackShadedMaterials.emplace(material);
+    }
     SeparateEye::RememberFallback(material);
     ApplyStereoKeywords(material);
     _shaderRepairSucceeded++;
@@ -3935,6 +4011,7 @@ void Runtime::RepairLoadedMaterialShaders() {
   _shaderRepairFailed = 0;
   _screenEffectsDeclined = 0;
   _standInsDimmedFromWhite = 0;
+  _estimatedLooks = {};
   _instancingDisabledMaterials = 0;
   for (auto const& [path, asset] : _assets) {
     if (!IsAlive(asset)) continue;
@@ -3958,6 +4035,10 @@ void Runtime::RepairLoadedMaterialShaders() {
                      _screenEffectsDeclined, _standInsDimmedFromWhite);
   PaperLogger.info("Vivify shader repair: {} material(s) had an unusable shader, {} replaced, {} could not be",
                      _shaderRepairAttempts, _shaderRepairSucceeded, _shaderRepairFailed);
+    if (GetEstimatedLook()) {
+      PaperLogger.info("Vivify estimated looks: {} opaque, {} alpha-cut, {} alpha-blended, {} additive glow",
+                       _estimatedLooks[0], _estimatedLooks[1], _estimatedLooks[2], _estimatedLooks[3]);
+    }
   }
 }
 

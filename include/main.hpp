@@ -86,6 +86,7 @@ bool GetReplayPlaying();
 bool GetReplayRendering();
 // Vivify's replay recorder (0.15.22, full build only).
 bool GetRecordReplays();
+bool GetEstimatedLook();
 // A loaded mod's handle by id, ignoring case; nullptr when not loaded.
 void* LoadedModHandle(std::string_view id);
 bool GetRecordReplaysWithBeatLeader();
