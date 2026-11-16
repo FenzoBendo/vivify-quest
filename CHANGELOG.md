@@ -11,6 +11,20 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.26] - 2026-11-16
+
+Not tried on a headset.
+
+### Changed
+- The two changes reverted in 0.15.23 are back, since the logs show Yoi
+  Okashi's problem was the separate-eye renderer refusing an anti-aliased eye
+  image (0.15.25), not either of them:
+  - one folder per map in `ConvertedBundles/` (0.15.20); files 0.15.23 moved
+    back up are moved into their map's folder again on first use, by
+    renaming, with nothing converted again;
+  - a map whose shaders the Separate-Eye Renderer cannot all convert plays
+    with the normal renderer instead of blocking the play button (0.15.21).
+
 ## [0.15.25] - 2026-11-16
 
 Not tried on a headset.

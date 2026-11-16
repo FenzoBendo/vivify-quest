@@ -683,40 +683,33 @@ bool MapAllowsImmutableMaterialFeaturesImpl(std::string const& sourceBundlePath)
   return true;
 }
 
-// 0.15.20 and 0.15.21 kept each map's converted files in a folder of its
-// own; 0.15.23 goes back to the flat ConvertedBundles of 0.15.19 (Yoi Okashi
-// rendered wrongly after 0.15.20). The first time a path is worked out, files
-// in those per-map folders are moved back up by renaming, so nothing has to
-// be converted again, and the emptied folders are removed.
-void MigrateConvertedBundlesBackToFlat() {
+// Up to 0.15.19 every converted file sat directly in ConvertedBundles. The
+// first time a path is worked out, those files are moved into their map's
+// folder (0.15.20), by renaming: nothing has to be converted again. A name is
+// "<map>_<16 hex digits><rest>"; anything else is left where it is.
+void MigrateFlatConvertedBundles() {
   static std::once_flag once;
   std::call_once(once, []() {
     std::error_code ec;
     std::filesystem::path const root(ConvertedBundleCacheDir());
     if (!std::filesystem::is_directory(root, ec)) return;
-    std::vector<std::filesystem::path> folders;
+    std::vector<std::filesystem::path> files;
     for (auto const& entry : std::filesystem::directory_iterator(root, ec)) {
-      if (entry.is_directory(ec)) folders.push_back(entry.path());
+      if (entry.is_regular_file(ec)) files.push_back(entry.path());
     }
     std::regex const pattern(R"(^(.+)_[0-9a-f]{16}((_[A-Za-z]+)?\.vivify.*)$)");
     int moved = 0;
-    for (auto const& folder : folders) {
-      std::vector<std::filesystem::path> files;
-      for (auto const& entry : std::filesystem::directory_iterator(folder, ec)) {
-        if (entry.is_regular_file(ec)) files.push_back(entry.path());
-      }
-      for (auto const& file : files) {
-        std::smatch match;
-        std::string const name = file.filename().string();
-        if (!std::regex_match(name, match, pattern) || match[1].str() != folder.filename().string()) continue;
-        std::filesystem::rename(file, root / name, ec);
-        if (!ec) moved++;
-        ec.clear();
-      }
-      std::filesystem::remove(folder, ec);  // only succeeds when empty
+    for (auto const& file : files) {
+      std::smatch match;
+      std::string const name = file.filename().string();
+      if (!std::regex_match(name, match, pattern)) continue;
+      auto const folder = root / match[1].str();
+      std::filesystem::create_directories(folder, ec);
+      std::filesystem::rename(file, folder / name, ec);
+      if (!ec) moved++;
       ec.clear();
     }
-    if (moved > 0) PaperLogger.info("Vivify: moved {} converted file(s) back into ConvertedBundles", moved);
+    if (moved > 0) PaperLogger.info("Vivify: moved {} converted file(s) into one folder per map", moved);
   });
 }
 
@@ -765,9 +758,14 @@ std::string ConvertedBundlePath(std::string const& sourceBundlePath) {
   char suffix[40];
   std::snprintf(suffix, sizeof(suffix), ReplayVariantWanted() ? "_%016llx_replay.vivify" : "_%016llx.vivify",
                 static_cast<unsigned long long>(hash));
-  // Flat again (0.15.23), as up to 0.15.19.
-  MigrateConvertedBundlesBackToFlat();
-  return JoinPath(ConvertedBundleCacheDir(), prefix + suffix);
+  // One folder per map (0.15.20): the conversion and everything made from
+  // it -- the blit, replay and donor builds, the separate-eye and
+  // tessellation builds, markers and proofs, all named after this path --
+  // sit together under ConvertedBundles/<map>/.
+  MigrateFlatConvertedBundles();
+  std::string const folder = JoinPath(ConvertedBundleCacheDir(), prefix);
+  std::filesystem::create_directories(folder, ec);
+  return JoinPath(folder, prefix + suffix);
 }
 
 // Info.dat's assetBundle checksum for one build ("android2021", "windows2021",
