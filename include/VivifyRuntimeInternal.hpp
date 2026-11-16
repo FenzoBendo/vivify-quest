@@ -844,7 +844,7 @@ private:
   // them into "could not be repaired" hid a rule that was deleting scenery.
   int _screenEffectsDeclined = 0;
   int _standInsDimmedFromWhite = 0;
-  // Estimated looks given this level (0.15.28): opaque, alpha-cut,
+  // Estimated looks given this level (0.15.27): opaque, alpha-cut,
   // alpha-blended, additive -- see VivifyLookEstimate.hpp.
   std::array<int, 4> _estimatedLooks{};
   int _instancingDisabledMaterials = 0;  // converted-bundle materials with GPU instancing turned off

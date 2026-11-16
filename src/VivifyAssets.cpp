@@ -827,7 +827,7 @@ struct MaterialFallbackState {
   std::optional<UnityEngine::Color> color;
   UnityEngine::Texture* mainTexture = nullptr;
   int renderQueue = -1;
-  // The texture's tiling and offset (0.15.28): a stand-in drew a tiled
+  // The texture's tiling and offset (0.15.27): a stand-in drew a tiled
   // texture stretched once across the mesh.
   std::optional<UnityEngine::Vector2> textureScale, textureOffset;
 };
@@ -3608,7 +3608,7 @@ void Runtime::RepairMaterialShader(UnityEngine::Material* material, std::string_
                      ToStdString(material->get_name()), originalShaderName);
   }
 
-  // Estimated look (0.15.28): instead of the one opaque stand-in for every
+  // Estimated look (0.15.27): instead of the one opaque stand-in for every
   // material, a stand-in that draws the way the material was meant to --
   // alpha-cut, alpha-blended or additive -- worked out from the blend
   // factors, keywords, RenderType tag, queue and shader name the material
