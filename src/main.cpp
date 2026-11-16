@@ -225,7 +225,7 @@ bool gCrashRecovery = true;
 std::atomic<bool> gRecoveryModeActive{false};
 bool gReplayRenderMode = true;
 bool gBlitFix = false;
-bool gPrepareShaders = false;
+bool gPrepareShaders = true;
 bool gGeometryEffects = false;
 bool gGeometryBothEyes = false;
 bool gGeometryEyeCopy = true;
@@ -267,7 +267,7 @@ constexpr std::string_view kVivifyLogPath =
 
 // A session log must not fill a headset, and it is truncated at launch anyway,
 // so this only has to bound one play session.
-constexpr std::streamoff kVivifyLogMaxBytes = 8 * 1024 * 1024;
+constexpr std::streamoff kVivifyLogMaxBytes = 13 * 1024 * 1024;
 
 std::ofstream gVivifyLogFile;
 std::mutex gVivifyLogMutex;
