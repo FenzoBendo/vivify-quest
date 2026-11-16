@@ -827,7 +827,7 @@ struct MaterialFallbackState {
   std::optional<UnityEngine::Color> color;
   UnityEngine::Texture* mainTexture = nullptr;
   int renderQueue = -1;
-  // The texture's tiling and offset (0.15.27): a stand-in drew a tiled
+  // The texture's tiling and offset (0.15.28): a stand-in drew a tiled
   // texture stretched once across the mesh.
   std::optional<UnityEngine::Vector2> textureScale, textureOffset;
 };
@@ -2960,8 +2960,13 @@ UnityEngine::Object* Runtime::LookUpAsset(std::string_view assetName) const {
 
 UnityEngine::Object* Runtime::GetAssetObject(std::string_view assetName) const {
   auto* asset = LookUpAsset(assetName);
-  if (asset == nullptr && GetVivifyDebugLogging()) {
-    PaperLogger.warn("Vivify asset lookup miss: '{}'", std::string(assetName));
+  // Once per asset per level (0.15.28): Yoi Okashi names a debris prefab
+  // its bundle does not have ('_customnotedebris.prefab'; the bundle has
+  // 'customnotedebris'), and the miss was logged for every cut note --
+  // about 3000 lines in one play.
+  if (asset == nullptr && GetVivifyDebugLogging() && _loggedAssetMisses.insert(NormalizeAssetKey(assetName)).second) {
+    PaperLogger.warn("Vivify asset lookup miss: '{}' (not in this map's bundle; logged once per level)",
+                     std::string(assetName));
   }
   return asset;
 }
@@ -3603,7 +3608,7 @@ void Runtime::RepairMaterialShader(UnityEngine::Material* material, std::string_
                      ToStdString(material->get_name()), originalShaderName);
   }
 
-  // Estimated look (0.15.27): instead of the one opaque stand-in for every
+  // Estimated look (0.15.28): instead of the one opaque stand-in for every
   // material, a stand-in that draws the way the material was meant to --
   // alpha-cut, alpha-blended or additive -- worked out from the blend
   // factors, keywords, RenderType tag, queue and shader name the material

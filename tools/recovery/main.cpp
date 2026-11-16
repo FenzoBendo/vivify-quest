@@ -126,6 +126,30 @@ int main() {
   check("forget all", R::Entries().empty());
 
   std::filesystem::remove_all(dir);
+  // A realtime reflection probe spawned, then a crash with nothing else to
+  // blame (Passing Memories, 0.15.26): probes off for that map next time.
+  R::LevelStarted("/maps/passing", 11000);
+  R::ReflectionProbesStarted(11001);
+  auto const probeCrash = R::ProcessPreviousRun(11050);
+  check("realtime probes are blamed when nothing else was",
+        R::SkipsReflectionProbes("/maps/passing") && probeCrash.find("reflection probes") != std::string::npos);
+  check("and are not taken for an effect or the trail",
+        R::SkippedBlits("/maps/passing").empty() && !R::SkipsMapTrails("/maps/passing"));
+  // An effect just before the crash still wins over the probes.
+  R::LevelStarted("/maps/probeblit", 12000);
+  R::ReflectionProbesStarted(12000);
+  R::BlitStarted("assets/fx.mat", 3.0f, 12003);
+  R::ProcessPreviousRun(12050);
+  check("a recent effect is blamed rather than the probes",
+        !R::SkipsReflectionProbes("/maps/probeblit") &&
+            R::SkippedBlits("/maps/probeblit") == std::vector<std::string>{"assets/fx.mat"});
+  // A clean finish blames nothing.
+  R::LevelStarted("/maps/clean", 13000);
+  R::ReflectionProbesStarted(13001);
+  R::LevelEnded(true, 120.0f, 13120);
+  R::ProcessPreviousRun(13200);
+  check("a finished level with probes is not listed", !R::SkipsReflectionProbes("/maps/clean"));
+
   std::printf("%d failure(s)\n", failures);
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

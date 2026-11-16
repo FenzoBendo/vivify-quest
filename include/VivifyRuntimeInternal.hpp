@@ -656,6 +656,10 @@ private:
   // This map went down right after its own saber trail was created last time
   // (0.15.15); it plays without it. Independent of Crash Recovery Mode.
   bool _skipMapTrails = false;
+  // Realtime reflection probes blamed for this map's last crash (0.15.28).
+  bool _skipReflectionProbes = false;
+  // Asset names already reported missing this level (GetAssetObject is const).
+  mutable std::unordered_set<std::string> _loggedAssetMisses;
   bool _skipMapTrailsLogged = false;
   std::chrono::steady_clock::time_point _lastRecoveryHeartbeat{};
   float _lastSyncSongTime = -1.0f;
@@ -840,7 +844,7 @@ private:
   // them into "could not be repaired" hid a rule that was deleting scenery.
   int _screenEffectsDeclined = 0;
   int _standInsDimmedFromWhite = 0;
-  // Estimated looks given this level (0.15.27): opaque, alpha-cut,
+  // Estimated looks given this level (0.15.28): opaque, alpha-cut,
   // alpha-blended, additive -- see VivifyLookEstimate.hpp.
   std::array<int, 4> _estimatedLooks{};
   int _instancingDisabledMaterials = 0;  // converted-bundle materials with GPU instancing turned off

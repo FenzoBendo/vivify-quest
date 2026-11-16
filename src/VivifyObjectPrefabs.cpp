@@ -142,6 +142,15 @@ uint32_t HeadsetLayersUsed(UnityEngine::GameObject* root) {
 // Reflection Probes" is on (0.15.3): at most 128 px, no HDR, and one cube face
 // a frame instead of all six. Get Your Wish's water probe is 512 px HDR and
 // re-renders every frame; reduced, it costs about a seventieth as much.
+bool HasRealtimeReflectionProbe(UnityEngine::GameObject* root) {
+  if (!IsManagedAlive(root)) return false;
+  auto probes = root->GetComponentsInChildren<UnityEngine::ReflectionProbe*>(true);
+  for (int i = 0; i < probes.size(); i++) {
+    if (IsManagedAlive(probes[i]) && probes[i]->get_mode().value__ == 1) return true;  // Realtime
+  }
+  return false;
+}
+
 int ReduceReflectionProbes(UnityEngine::GameObject* root) {
   if (GetFullReflectionProbes() || !IsManagedAlive(root)) return 0;
   int changed = 0;
@@ -843,6 +852,11 @@ void Runtime::InstantiatePrefab(CustomJSONData::CustomEventData* customEventData
   RegisterSingleViewMaterials(instance);
   ReduceReflectionProbes(instance);
   NoteReflectionProbes(instance);
+  // Recorded for crash recovery (0.15.28): a crash with nothing else to
+  // blame then turns realtime probes off for this map next time.
+  if (GetMapReflectionProbes() && !_recoveryMode && !_skipReflectionProbes && HasRealtimeReflectionProbe(instance))
+    Recovery::ReflectionProbesStarted(
+        std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
   NoteHeadsetLayers(instance, data.asset);
   // No physics for a map's scenery (0.15.10). Prefabs carry the colliders
   // Unity puts on every primitive (743 Aether has 43 mesh colliders), nothing

@@ -11,6 +11,31 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.28] - 2026-11-16
+
+Not tried on a headset. From the 0.15.26 logs uploaded on Nov 16.
+
+### Fixed
+- **Passing Memories crashed three times in a row** (and RSIH once on
+  0.15.17) inside Unity's worker thread, right after a prefab with a realtime
+  reflection probe spawned. Crash recovery recorded each crash, but with
+  Crash Recovery Mode off nothing changed for the next play. Now, when a map
+  goes down with realtime reflection probes on and nothing else to blame, it
+  plays with them off next time -- with Crash Recovery Mode off as well, like
+  the saber-trail guard. "Forget Crash Recovery" gives them back.
+- Yoi Okashi logged "asset lookup miss" about 3000 times in one play: the map
+  names a debris prefab (`_customnotedebris.prefab`) its bundle does not
+  have. It falls back to the game's debris, as on PC; the miss is now logged
+  once per level.
+
+### Notes
+- Yoi Okashi's separate-eye scene was drawn again on 0.15.26 (no "keeping
+  normal frame" refusals).
+- Five startup crashes in these logs are inside other mods' hook installation
+  (MultiplayerCore, MetaCore, Replay; earlier unicode, NoodleExtensions,
+  BeatLeader): the next mod to patch a function after Vivify's hooks faults
+  writing to read-only memory. Not yet traced to a cause.
+
 ## [0.15.27] - 2026-11-16
 
 Not tried on a headset.

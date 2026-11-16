@@ -760,7 +760,7 @@ void Runtime::HandleSetRenderingSettings(CustomJSONData::CustomEventData* custom
       }
       // Realtime reflection probes are opt-in too; see
       // DisableRealtimeReflectionProbesForLevel.
-      if (categoryKey == "qualitySettings"sv && (!GetMapReflectionProbes() || _recoveryMode) &&
+      if (categoryKey == "qualitySettings"sv && (!GetMapReflectionProbes() || _recoveryMode || _skipReflectionProbes) &&
           key == "realtimeReflectionProbes") {
         PaperLogger.info("Vivify SetRenderingSettings: ignoring the map's realtimeReflectionProbes; turn on "
                          "'Map Reflection Probes' to let maps enable them");
@@ -1195,7 +1195,7 @@ void Runtime::DisableRealtimeShadowsForLevel() {
 // (ReduceReflectionProbes) unless "Full Reflection Probes" is on; off still
 // with the setting off, and always in crash recovery mode.
 void Runtime::DisableRealtimeReflectionProbesForLevel() {
-  if (GetMapReflectionProbes() && !_recoveryMode) {
+  if (GetMapReflectionProbes() && !_recoveryMode && !_skipReflectionProbes) {
     PaperLogger.info("Vivify: maps may turn realtime reflection probes on ({})",
                      GetFullReflectionProbes() ? "full quality" : "reduced: 128 px, one face a frame, no HDR");
     return;
@@ -1206,7 +1206,10 @@ void Runtime::DisableRealtimeReflectionProbesForLevel() {
     bool const before = std::get<bool>(saved.saved);
     ApplyRenderSettingBool("realtimeReflectionProbes", false);
     PaperLogger.info("Vivify: realtime reflection probes off for this level ({}; the game had them {})",
-                     _recoveryMode ? "crash recovery mode" : "'Map Reflection Probes' is off", before ? "on" : "off");
+                     _recoveryMode           ? "crash recovery mode"
+                     : _skipReflectionProbes ? "they were on when this map last crashed"
+                                             : "'Map Reflection Probes' is off",
+                     before ? "on" : "off");
     return;
   }
   PaperLogger.info("Vivify: could not read realtimeReflectionProbes; left as it is");
@@ -1235,6 +1238,12 @@ void Runtime::EnterRecoveryModeIfNeeded() {
                      "time; it plays without that trail (your own trail stays). 'Forget Crash Recovery' in the "
                      "advanced settings gives it back");
     NoteVisualProblem("Map saber trail skipped: the game crashed right after it was created last time");
+  }
+  _skipReflectionProbes = !_selectedLevelPath.empty() && Recovery::SkipsReflectionProbes(_selectedLevelPath);
+  if (_skipReflectionProbes) {
+    PaperLogger.warn("Vivify crash recovery: this map went down with realtime reflection probes on last time; it "
+                     "plays with them off. 'Forget Crash Recovery' in the advanced settings gives them back");
+    NoteVisualProblem("Realtime reflection probes off: the game crashed with them on last time");
   }
   if (!GetCrashRecovery() || _selectedLevelPath.empty() || !Recovery::InRecovery(_selectedLevelPath)) return;
   _recoveryMode = true;
