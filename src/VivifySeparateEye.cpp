@@ -109,16 +109,6 @@ std::array<SafePtr<GlobalNamespace::BloomPrePass>, 2> eyeBloom;
 std::array<SafePtr<UnityEngine::RenderTexture>, 2> colors;
 SafePtr<UnityEngine::RenderTexture> staging;
 bool rendering = false, failed = false, reported = false;
-// A map whose shaders the separate-eye path cannot all translate (0.15.21,
-// Transmission: 18 of 19, 'Custom/Circle' refused) still plays with the
-// normal renderer; `failed` already keeps every frame on the normal path, so
-// blocking the play button only made the player turn the setting off.
-void FallBackToNormalRenderer(std::string const& why) {
-  failed = true;
-  PaperLogger.warn("Vivify separate-eye: {}; this map plays with the normal renderer", why);
-  if (preparingGate) SongCore::API::PlayButton::EnablePlayButton(kPlayGate);
-  preparingGate = false;
-}
 // 0/1: scene eyes; 2: authored mono cameras; 3/4: per-eye screen effects.
 int captureEye = -1;
 int blitEye = -1;
@@ -810,7 +800,7 @@ static void PrepareImpl(std::string const& level, std::string const& source, std
     std::lock_guard lock(conversionMutex);
     std::array<std::string, 6> paths;
     std::array<BindingCatalog, 6> catalogs;
-    bool success = true, refusedOnly = false;
+    bool success = true;
     TessellationCache::Result tessellation;
     BundleConvert::ShaderScan stageScan;
     try {
@@ -876,7 +866,7 @@ static void PrepareImpl(std::string const& level, std::string const& source, std
       if (!result.ok() || result.shadersRefused || result.variantsRefused) {
         PaperLogger.warn("Vivify separate-eye conversion refused '{}': {} ({} shaders / {} variants refused)",
                          level, result.message, result.shadersRefused, result.variantsRefused);
-        success = false; refusedOnly = result.ok() && (result.shadersRefused || result.variantsRefused); break;
+        success = false; break;
       }
       std::ofstream(paths[eye] + ".version") << cacheVersion << '\n';
       if (analyzeBindings && eye != 2 && eye != 5) catalogs[eye] = BundleConvert::ScanShaders(paths[eye]).stereoBindingMasks;
@@ -884,14 +874,10 @@ static void PrepareImpl(std::string const& level, std::string const& source, std
     } catch (std::exception const& ex) {
       PaperLogger.error("Vivify separate-eye conversion exception: {}", ex.what()); success = false;
     } catch (...) { success = false; }
-    BSML::MainThreadScheduler::Schedule([epoch, level, paths, success, refusedOnly, catalogs = std::move(catalogs),
+    BSML::MainThreadScheduler::Schedule([epoch, level, paths, success, catalogs = std::move(catalogs),
                                          covered = std::move(tessellation.covered), stageScan = std::move(stageScan)]() mutable {
       if (epoch != generation || level != preparedLevel || !GetExperimentalSeparateEye()) return;
-      if (!success) {
-        if (refusedOnly) FallBackToNormalRenderer("some of the map's shaders could not be converted for it");
-        else { failed = true; PreparationFailed(); }
-        return;
-      }
+      if (!success) { failed = true; PreparationFailed(); return; }
       completeStageInfo = stageScan.sceneStageInfoComplete;
       bindingCatalogs = std::move(catalogs);
       separateEyeShaderNames = std::unordered_set<std::string>(stageScan.separateEyeShaderNames.begin(), stageScan.separateEyeShaderNames.end());

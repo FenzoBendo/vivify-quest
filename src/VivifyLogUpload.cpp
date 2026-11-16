@@ -72,6 +72,15 @@ void WriteState(std::filesystem::path const& path, std::map<std::string, std::ui
 
 // Only Vivify-owned diagnostic files are uploaded. The session file is
 // included alongside the persistent global history and per-level reports.
+bool IsGlobalLogPart(std::string const& name) {
+  constexpr std::string_view kStem = "vivify_global";
+  if (name.rfind(kStem, 0) != 0 || name.size() < kStem.size() + 4 || !name.ends_with(".txt")) return false;
+  std::string_view const middle(name.data() + kStem.size(), name.size() - kStem.size() - 4);
+  if (middle.empty()) return true;
+  if (middle.size() < 3 || middle.size() > 5 || middle.substr(0, 2) != "-p") return false;
+  return std::all_of(middle.begin() + 2, middle.end(), [](char c) { return c >= '0' && c <= '9'; });
+}
+
 std::vector<std::filesystem::path> Candidates(std::filesystem::path const& directory) {
   std::vector<std::filesystem::path> files;
   for (char const* name : {"VivifyCrash.txt", "VivifyReport.txt", "RecoveryMaps.txt", "PlayingLevel.txt",
@@ -82,7 +91,10 @@ std::vector<std::filesystem::path> Candidates(std::filesystem::path const& direc
   std::error_code ec;
   for (auto const& entry : std::filesystem::directory_iterator(directory, ec)) {
     std::string const name = entry.path().filename().string();
-    if (name.rfind("vivify_global", 0) == 0 && entry.path().extension() == ".txt") parts.push_back(entry.path());
+    // Only the global log's own parts, "vivify_global.txt" and
+    // "vivify_global-p<N>.txt": a copy such as "vivify_global (1).txt" made
+    // the relay refuse the whole upload (http 400, bad file name).
+    if (IsGlobalLogPart(name)) parts.push_back(entry.path());
   }
   std::sort(parts.begin(), parts.end(), [](auto const& a, auto const& b) {
     std::error_code e1, e2;

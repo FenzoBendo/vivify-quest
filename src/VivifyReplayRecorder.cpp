@@ -139,10 +139,7 @@ void Reset() {
   currentPause.reset();
 }
 
-bool ModLoaded(char const* id) {
-  CModInfo info{.id = id, .version = nullptr, .version_long = 0};
-  return modloader_get_mod(&info, MatchType_IdOnly).handle != nullptr;
-}
+bool ModLoaded(char const* id) { return LoadedModHandle(id) != nullptr; }
 
 // Why a level is not recorded, or nullptr when it is.
 char const* SkipReason() {

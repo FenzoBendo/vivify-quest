@@ -11,6 +11,40 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.24] - 2026-11-16
+
+Not tried on a headset.
+
+### Fixed
+- **Yoi Okashi**: the logs show its grass shader (`Roystan/Grass`) swapped
+  for its tessellated build, because **Triangle Tessellation** was on. It
+  was off when the map last looked right (0.15.20, Nov 14). Triangle
+  Tessellation is now also a per-map setting (Map Settings), so it can stay
+  on for Lifelike and be turned off for Yoi Okashi.
+- The Replay mod was never detected: it registers as "Replay" and Vivify
+  asked for "replay". Mod lookups now ignore case. This affected the replay
+  recorder ("the Replay mod is not installed") and Vivify's Replay support
+  since 0.15.19 (render camera, seek re-prepare, the Replay button).
+- Send Logs uploads only the global log's own parts (`vivify_global.txt`,
+  `vivify_global-p<N>.txt`). A copy named `vivify_global (1).txt` made the
+  relay refuse every upload with http 400.
+
+## [0.15.23] - 2026-11-16
+
+Not tried on a headset.
+
+### Reverted
+Yoi Okashi to Warui Okashi, which rendered perfectly before, broke after
+0.15.20/0.15.21. The two changes from those versions that affect rendering
+are undone; logging, Send Logs, the settings changes and the replay
+recorder stay.
+- Converted bundles are flat in `ConvertedBundles/` again, as up to 0.15.19.
+  Files in the per-map folders of 0.15.20 are moved back on first use, and
+  the empty folders removed; nothing is converted again.
+- A map whose shaders the Separate-Eye Renderer cannot all convert blocks
+  the play button again ("Map effects could not be prepared"), instead of
+  playing with the normal renderer.
+
 ## [0.15.22] - 2026-11-15
 
 Not tried on a headset.

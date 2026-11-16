@@ -892,6 +892,7 @@ struct MapSettingRow {
 bool GlobalDisableAllBlits() { return gDisableAllBlits; }
 bool GlobalFlatScreenGuard() { return gFlatScreenGuard; }
 bool GlobalMapSabers() { return gMapSabers; }
+bool GlobalTriangleTessellation() { return !kLiteBuild && gUniformTriangleTessellation; }
 bool GlobalDisableCustomNoteVisuals() { return gDisableCustomNoteVisuals; }
 bool GlobalMapReflectionProbes() { return gMapReflectionProbes; }
 bool GlobalMapRealtimeShadows() { return gMapRealtimeShadows; }
@@ -908,6 +909,7 @@ MapSettingRow const kMapSettingRows[] = {
     {"Realtime Shadows", kMapRealtimeShadowsConfigKey, false, GlobalMapRealtimeShadows},
     {"Scene Depth", kSceneDepthConfigKey, false, GlobalSceneDepth},
     {"AudioLink", kAudioLinkConfigKey, false, GlobalAudioLink},
+    {"Triangle Tessellation", kUniformTriangleTessellationKey, false, GlobalTriangleTessellation},
 };
 std::vector<SafePtrUnity<UnityEngine::UI::Button>> gMapSettingButtons;
 
@@ -1525,7 +1527,11 @@ bool GetMultipassRenderingEnabled() {
 }
 
 bool GetExperimentalSeparateEye() { return !kLiteBuild && gExperimentalSeparateEye; }
-bool GetUniformTriangleTessellation() { return !kLiteBuild && gUniformTriangleTessellation; }
+// Per map too (0.15.24): it swapped Yoi Okashi's grass shader for its
+// tessellated build when turned on for Lifelike's grass.
+bool GetUniformTriangleTessellation() {
+  return !kLiteBuild && MapBool(kUniformTriangleTessellationKey, gUniformTriangleTessellation);
+}
 
 bool GetSendLogs() {
   return gSendLogs;
@@ -1636,6 +1642,26 @@ bool GetMapRealtimeShadows() {
   return MapBool(kMapRealtimeShadowsConfigKey, gMapRealtimeShadows);
 }
 
+// A loaded mod's handle by id, ignoring case (0.15.24): the Replay mod
+// registers as "Replay" while every lookup asked for "replay", so Vivify's
+// Replay support and its replay recorder never found it.
+void* LoadedModHandle(std::string_view id) {
+  CModResults results = modloader_get_loaded();
+  void* handle = nullptr;
+  for (size_t i = 0; i < results.size && handle == nullptr; i++) {
+    char const* loadedId = results.array[i].info.id;
+    if (loadedId == nullptr) continue;
+    std::string_view const loaded(loadedId);
+    if (loaded.size() == id.size() &&
+        std::equal(loaded.begin(), loaded.end(), id.begin(), [](char a, char b) {
+          return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+        }))
+      handle = results.array[i].handle;
+  }
+  modloader_free_results(&results);
+  return handle;
+}
+
 namespace {
 // What conditional-dependencies' EXPOSE_API returns, laid out as in its
 // utils.hpp (0.3.0). Its headers are not used: they include the old
@@ -1655,10 +1681,9 @@ using IsInRenderFunction = bool (*)();
 // Replay's IsInRender, found through the loader rather than by file path, and
 // type checked the way conditional-dependencies does before using it.
 IsInRenderFunction FindReplayIsInRender() {
-  CModInfo info{.id = "replay", .version = nullptr, .version_long = 0};
-  CModResult mod = modloader_get_mod(&info, MatchType_IdOnly);
-  if (mod.handle == nullptr) return nullptr;
-  auto* exported = reinterpret_cast<ExposedApi (*)()>(dlsym(mod.handle, "__IsInRender"));
+  void* handle = LoadedModHandle("replay");
+  if (handle == nullptr) return nullptr;
+  auto* exported = reinterpret_cast<ExposedApi (*)()>(dlsym(handle, "__IsInRender"));
   if (exported == nullptr) return nullptr;
   ExposedApi const api = exported();
   if (api.ret.name != "bool" || api.ret.size != sizeof(bool) || !api.params.empty()) return nullptr;
@@ -1667,10 +1692,9 @@ IsInRenderFunction FindReplayIsInRender() {
 
 // Replay's IsInReplay: a replay is being watched or rendered (0.15.19).
 IsInRenderFunction FindReplayIsInReplay() {
-  CModInfo info{.id = "replay", .version = nullptr, .version_long = 0};
-  CModResult mod = modloader_get_mod(&info, MatchType_IdOnly);
-  if (mod.handle == nullptr) return nullptr;
-  auto* exported = reinterpret_cast<ExposedApi (*)()>(dlsym(mod.handle, "__IsInReplay"));
+  void* handle = LoadedModHandle("replay");
+  if (handle == nullptr) return nullptr;
+  auto* exported = reinterpret_cast<ExposedApi (*)()>(dlsym(handle, "__IsInReplay"));
   if (exported == nullptr) return nullptr;
   ExposedApi const api = exported();
   if (api.ret.name != "bool" || api.ret.size != sizeof(bool) || !api.params.empty()) return nullptr;
@@ -1689,8 +1713,7 @@ bool ReplayModIsReplaying() {
 }
 
 bool ReplayModInstalled() {
-  CModInfo info{.id = "replay", .version = nullptr, .version_long = 0};
-  return modloader_get_mod(&info, MatchType_IdOnly).handle != nullptr;
+  return LoadedModHandle("replay") != nullptr;
 }
 
 // Whether the Replay mod is rendering a replay right now. The lookup is
