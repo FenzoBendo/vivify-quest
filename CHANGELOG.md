@@ -11,6 +11,22 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.23] - 2026-11-16
+
+Not tried on a headset.
+
+### Reverted
+Yoi Okashi to Warui Okashi, which rendered perfectly before, broke after
+0.15.20/0.15.21. The two changes from those versions that affect rendering
+are undone; logging, Send Logs, the settings changes and the replay
+recorder stay.
+- Converted bundles are flat in `ConvertedBundles/` again, as up to 0.15.19.
+  Files in the per-map folders of 0.15.20 are moved back on first use, and
+  the empty folders removed; nothing is converted again.
+- A map whose shaders the Separate-Eye Renderer cannot all convert blocks
+  the play button again ("Map effects could not be prepared"), instead of
+  playing with the normal renderer.
+
 ## [0.15.22] - 2026-11-15
 
 Not tried on a headset.
