@@ -154,6 +154,9 @@ struct ShaderScan {
   // compile them for the bundle's platform and shipped them empty. Nothing can
   // draw them from this bundle; the PC build of the same map can stand in.
   std::vector<std::string> emptyShaderNames;
+  // GrabPass texture names the bundle's shaders use (0.15.29), e.g. Silent's
+  // Clear Water grabs "_GrabTextureWater" for its reflections.
+  std::vector<std::string> grabTextureNames;
   // Shaders with GLSL programs of which none is a multiview (two-eye) one:
   // the shader has no stereo code, so it can only draw one eye at a time.
   std::vector<std::string> singleViewOnlyShaderNames;

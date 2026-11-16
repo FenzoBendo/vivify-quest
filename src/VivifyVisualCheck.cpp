@@ -268,6 +268,36 @@ void Runtime::RunVisualCheck(std::string_view when) {
     }
   }
 
+  // What Unity's GrabPass actually left bound for each grab texture the map's
+  // shaders read (0.15.29). A converted multiview shader samples it as a
+  // two-eye array; water whose reflections or refraction come from a grab
+  // (Luminescent's Silent/Clear Water) shows nothing if Unity binds a plain
+  // 2D texture, or none, there.
+  {
+    std::set<std::string> grabs;
+    {
+      std::lock_guard lock(_depthScanMutex);
+      grabs = _grabTextureNames;
+    }
+    for (auto const& name : grabs) {
+      auto* texture = UnityEngine::Shader::GetGlobalTexture(StringW(name)).unsafePtr();
+      if (!IsAlive(texture)) {
+        PaperLogger.info("Vivify grab texture '{}' at {}: nothing bound", name, when);
+        continue;
+      }
+      auto* rt = il2cpp_utils::try_cast<UnityEngine::RenderTexture>(texture).value_or(nullptr);
+      if (IsAlive(rt)) {
+        auto d = rt->get_descriptor();
+        PaperLogger.info("Vivify grab texture '{}' at {}: render texture dimension={} layers={} {}x{} msaa={}",
+                         name, when, static_cast<int>(d.get_dimension().value__), d.get_volumeDepth(),
+                         d.get_width(), d.get_height(), d.get_msaaSamples());
+      } else {
+        PaperLogger.info("Vivify grab texture '{}' at {}: '{}' (not a render texture) {}x{}", name, when,
+                         ToStdString(texture->get_name()), texture->get_width(), texture->get_height());
+      }
+    }
+  }
+
   // Whether the main camera draws the notes' layer at all.
   UnityW<UnityEngine::Camera> camera(VivifyMainCamera());
   if (IsAlive(camera.unsafePtr())) {

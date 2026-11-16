@@ -660,6 +660,9 @@ private:
   bool _skipReflectionProbes = false;
   // Asset names already reported missing this level (GetAssetObject is const).
   mutable std::unordered_set<std::string> _loggedAssetMisses;
+  // GrabPass texture names seen in loaded bundles (under _depthScanMutex),
+  // reported by the visual check (0.15.29).
+  std::set<std::string> _grabTextureNames;
   bool _skipMapTrailsLogged = false;
   std::chrono::steady_clock::time_point _lastRecoveryHeartbeat{};
   float _lastSyncSongTime = -1.0f;

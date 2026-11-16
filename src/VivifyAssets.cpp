@@ -2672,6 +2672,13 @@ void Runtime::ScanBundleForSceneDepth(std::string const& bundlePath) {
         needed = scan.samplesCameraDepth;
         for (auto const& name : scan.cameraDepthShaderNames) shaders += (shaders.empty() ? "" : ", ") + name;
       }
+      if (!scan.grabTextureNames.empty()) {
+        std::string grabs;
+        for (auto const& name : scan.grabTextureNames) grabs += (grabs.empty() ? "" : ", ") + name;
+        PaperLogger.info("Vivify grab passes: '{}' grabs {}", bundlePath, grabs);
+        std::lock_guard lock(_depthScanMutex);
+        for (auto const& name : scan.grabTextureNames) _grabTextureNames.insert(name);
+      }
     } catch (...) {
     }
     PaperLogger.info("Vivify scene depth scan: '{}' -> {}{}", bundlePath,

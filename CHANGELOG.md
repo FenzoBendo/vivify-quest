@@ -11,6 +11,31 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.29] - 2026-11-16
+
+Not tried on a headset.
+
+### Added
+- Grab-pass diagnostics. The scene-depth scan of a map's bundle now also
+  lists the GrabPass textures its shaders use ("Vivify grab passes: ..."),
+  and the 5 s / 30 s visual checks log what is actually bound to each one
+  ("Vivify grab texture '_GrabTextureWater' at 5s: ..."): nothing, a 2D
+  texture, or a two-layer array, with its size and MSAA.
+
+### Investigated
+- Get Your Wish's blue: the map has a single blit, `assets/ppunderwater.mat`
+  (`nasafrasa/PPUnderwater`), at 166.7 s for 32 beats, animating `_Blue`
+  from 0 to 1. Converted, it is a straight colour grade (red x(1-0.5*_Blue),
+  green x(1-0.2*_Blue), more blue) with no depth reads; the translation
+  matches the original. Blue in that window is the map's underwater effect;
+  blue anywhere else does not come from this blit.
+- Luminescent's water (`Silent/Clear Water`) has no reflection probe, camera
+  or script in its bundle: its reflections and refraction come from a
+  GrabPass (`_GrabTextureWater`), which the converted multiview shader
+  samples as a two-eye array. Get Your Wish's reflections come from
+  reflection probes, which work. Whether Unity's GrabPass on the Quest binds
+  a matching texture is what the new diagnostic answers.
+
 ## [0.15.28] - 2026-11-16
 
 Not tried on a headset. From the 0.15.26 logs uploaded on Nov 16.
