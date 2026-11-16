@@ -46,6 +46,9 @@ void Heartbeat(float songTime, int64_t now);
 void BlitStarted(std::string const& asset, float songTime, int64_t now);
 // The map's own saber trail was just created.
 void MapTrailStarted(float songTime, int64_t now);
+// A prefab with a realtime reflection probe was just spawned, with realtime
+// probes allowed (0.15.28).
+void ReflectionProbesStarted(int64_t now);
 // `finished` when the song reached its end.
 void LevelEnded(bool finished, float songTime, int64_t now);
 
@@ -57,6 +60,12 @@ void LevelEnded(bool finished, float songTime, int64_t now);
 // ignored.
 inline constexpr char const* kMapTrailsEntry = "<map saber trail after start>";
 inline constexpr char const* kOldMapTrailsEntry = "<map saber trails>";
+// Realtime reflection probes were on when the map went down with nothing else
+// to blame (0.15.28): Passing Memories crashed three times in a row, and RSIH
+// once, inside Unity's worker thread (libunity +0x13ee740) right after a
+// prefab with a realtime probe spawned. The map then plays with realtime
+// reflection probes off, even with Crash Recovery Mode off.
+inline constexpr char const* kReflectionProbesEntry = "<realtime reflection probes>";
 
 struct Entry {
   std::string levelPath;
@@ -70,6 +79,8 @@ bool InRecovery(std::string const& levelPath);
 std::vector<std::string> SkippedBlits(std::string const& levelPath);
 // The map's own saber trail was being created when it went down.
 bool SkipsMapTrails(std::string const& levelPath);
+// Realtime reflection probes were on when it went down (see above).
+bool SkipsReflectionProbes(std::string const& levelPath);
 void Forget(std::string const& levelPath);
 void ForgetAll();
 

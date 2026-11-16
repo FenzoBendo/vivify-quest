@@ -174,6 +174,10 @@ bool gConvertPcBundlesOnDevice = true;
 // white. Turning this off leaves such meshes undrawn instead, which also means
 // notes and sabers keep the game's own visuals rather than a white stand-in.
 bool gStandInShading = true;
+// Estimated Look (0.15.27): stand-ins chosen to draw the way each material
+// was meant to (alpha-cut, alpha-blended, additive) rather than one opaque one.
+bool gEstimatedLook = true;
+constexpr std::string_view kEstimatedLookConfigKey = "estimatedLook";
 bool gSceneDepth = true;
 // Vivify does not change note timing, scoring, or anything else a leaderboard
 // cares about -- it changes how a map looks. Submission was nevertheless being
@@ -647,6 +651,10 @@ char const* SettingHint(std::u16string_view label) {
       {u"Record With BeatLeader",
        "Also record when BeatLeader is installed. Off by default, since BeatLeader saves its own replays and "
        "the Replay mod would list both."},
+      {u"Estimated Look",
+       "For a material whose shader cannot run here (or that a map shipped empty), uses a stand-in that draws "
+       "the way it was meant to -- see-through, cut-out or glowing -- judged from what the material still "
+       "carries. Off: one plain opaque stand-in for all of them."},
       {u"Use Windows Bundle",
        "For the selected map only: use its PC (Windows) bundle, converted on the headset, instead of its Quest "
        "bundle. Try it when a map's Quest version looks wrong or is missing things."},
@@ -1314,6 +1322,8 @@ void RegisterModSettings() {
                         [](bool value) { SetBoolConfigValue(kTranslateShadersConfigKey, value, gTranslateShaders); }));
         advanced(toggle(u"Stand-In Shading", GetStandInShading(),
                         [](bool value) { SetBoolConfigValue(kStandInShadingConfigKey, value, gStandInShading); }));
+        advanced(toggle(u"Estimated Look", GetEstimatedLook(),
+                        [](bool value) { SetBoolConfigValue(kEstimatedLookConfigKey, value, gEstimatedLook); }));
         advanced(toggle(u"Scene Depth For Map Shaders", GetSceneDepthTexture(),
                         [](bool value) { SetBoolConfigValue(kSceneDepthConfigKey, value, gSceneDepth); }));
         advanced(toggle(u"Map Realtime Shadows", GetMapRealtimeShadows(), [](bool value) {
@@ -1591,6 +1601,7 @@ bool GetConvertPcBundlesOnDevice() {
 bool GetStandInShading() {
   return gStandInShading;
 }
+bool GetEstimatedLook() { return gEstimatedLook; }
 
 bool GetSceneDepthTexture() {
   return MapBool(kSceneDepthConfigKey, gSceneDepth);
@@ -1908,6 +1919,7 @@ void EnsureConfigDefaults() {
 
   needsWrite |= EnsureBoolConfigValue(kVivifyDebugLoggingConfigKey, false, gVivifyDebugLogging);
   needsWrite |= EnsureBoolConfigValue(kSendLogsConfigKey, true, gSendLogs);
+  needsWrite |= EnsureBoolConfigValue(kEstimatedLookConfigKey, true, gEstimatedLook);
   needsWrite |= EnsureBoolConfigValue(kInstalledPrereleaseConfigKey, false, gInstalledPrereleaseBuild);
   needsWrite |= EnsureBoolConfigValue(kRecordReplaysConfigKey, true, gRecordReplays);
   needsWrite |= EnsureBoolConfigValue(kRecordReplaysWithBeatLeaderConfigKey, false, gRecordReplaysWithBeatLeader);

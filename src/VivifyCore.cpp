@@ -647,6 +647,8 @@ void Runtime::ResetRuntime(std::string_view reason) {
   _recoverySkippedBlits.clear();
   _skipMapTrails = false;
   _skipMapTrailsLogged = false;
+  _skipReflectionProbes = false;
+  _loggedAssetMisses.clear();
   EndSingleViewCamera();
   _singleViewSwaps.clear();
   _mapHeadsetLayers = 0;

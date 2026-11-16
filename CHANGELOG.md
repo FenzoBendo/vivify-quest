@@ -11,6 +11,80 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.29] - 2026-11-16
+
+Not tried on a headset.
+
+### Added
+- Grab-pass diagnostics. The scene-depth scan of a map's bundle now also
+  lists the GrabPass textures its shaders use ("Vivify grab passes: ..."),
+  and the 5 s / 30 s visual checks log what is actually bound to each one
+  ("Vivify grab texture '_GrabTextureWater' at 5s: ..."): nothing, a 2D
+  texture, or a two-layer array, with its size and MSAA.
+
+### Investigated
+- Get Your Wish's blue: the map has a single blit, `assets/ppunderwater.mat`
+  (`nasafrasa/PPUnderwater`), at 166.7 s for 32 beats, animating `_Blue`
+  from 0 to 1. Converted, it is a straight colour grade (red x(1-0.5*_Blue),
+  green x(1-0.2*_Blue), more blue) with no depth reads; the translation
+  matches the original. Blue in that window is the map's underwater effect;
+  blue anywhere else does not come from this blit.
+- Luminescent's water (`Silent/Clear Water`) has no reflection probe, camera
+  or script in its bundle: its reflections and refraction come from a
+  GrabPass (`_GrabTextureWater`), which the converted multiview shader
+  samples as a two-eye array. Get Your Wish's reflections come from
+  reflection probes, which work. Whether Unity's GrabPass on the Quest binds
+  a matching texture is what the new diagnostic answers.
+
+## [0.15.28] - 2026-11-16
+
+Not tried on a headset. From the 0.15.26 logs uploaded on Nov 16.
+
+### Fixed
+- **Passing Memories crashed three times in a row** (and RSIH once on
+  0.15.17) inside Unity's worker thread, right after a prefab with a realtime
+  reflection probe spawned. Crash recovery recorded each crash, but with
+  Crash Recovery Mode off nothing changed for the next play. Now, when a map
+  goes down with realtime reflection probes on and nothing else to blame, it
+  plays with them off next time -- with Crash Recovery Mode off as well, like
+  the saber-trail guard. "Forget Crash Recovery" gives them back.
+- Yoi Okashi logged "asset lookup miss" about 3000 times in one play: the map
+  names a debris prefab (`_customnotedebris.prefab`) its bundle does not
+  have. It falls back to the game's debris, as on PC; the miss is now logged
+  once per level.
+
+### Notes
+- Yoi Okashi's separate-eye scene was drawn again on 0.15.26 (no "keeping
+  normal frame" refusals).
+- Five startup crashes in these logs are inside other mods' hook installation
+  (MultiplayerCore, MetaCore, Replay; earlier unicode, NoodleExtensions,
+  BeatLeader): the next mod to patch a function after Vivify's hooks faults
+  writing to read-only memory. Not yet traced to a cause.
+
+## [0.15.27] - 2026-11-16
+
+Not tried on a headset.
+
+### Added
+- **Estimated Look** (Advanced, on by default). A material whose shader
+  cannot run on the Quest used to get one plain opaque stand-in, so glows,
+  glass, particles and grass all came out as solid flat surfaces. Vivify now
+  estimates how each one was meant to draw from what the material still
+  carries -- blend factors, Unity keywords, RenderType tag, render queue,
+  depth write, emission and the shader's name -- and picks a stand-in of
+  that kind: alpha-cut, alpha-blended or additive glow (opaque keeps the
+  plain stand-in). Each choice and its reason is logged ("Vivify estimated
+  look: ..."), with a count per level. The texture's tiling and offset now
+  carry over to every stand-in too.
+
+### Notes
+- Shaders: every shader in the uploaded logs that has compiled programs now
+  translates. The two left are empty in the maps themselves: Transmission's
+  `Custom/Circle` and an unnamed shader in the war II contain zero programs
+  in their Windows bundles, so they cannot draw on PC either; the estimated
+  look is what stands in for them. PC Vivify (Aeroluna) has no shader
+  fallback of its own -- it leaves everything to Unity.
+
 ## [0.15.26] - 2026-11-16
 
 Not tried on a headset.

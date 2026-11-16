@@ -2826,6 +2826,9 @@ ShaderScan ScanShaders(std::string const& bundlePath) {
       if (needsSeparateEye) scan.separateEyeShaderNames.push_back(shader.name);
       if (needsTessellation) scan.tessellationShaderNames.push_back(shader.name.empty() ? "shader@" + std::to_string(shader.pathID) : shader.name);
       if (decoded.ok && realPrograms == 0 && !shader.name.empty()) scan.emptyShaderNames.push_back(shader.name);
+      for (auto const& grab : shader.grabTextures)
+        if (!grab.empty() && std::find(scan.grabTextureNames.begin(), scan.grabTextureNames.end(), grab) == scan.grabTextureNames.end())
+          scan.grabTextureNames.push_back(grab);
       bool depthHere = false;
       for (auto const& program : decoded.programs) {
         static constexpr std::string_view kDepth = "CameraDepthTexture";  // and _LastCameraDepthTexture

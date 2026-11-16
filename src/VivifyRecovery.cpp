@@ -24,6 +24,7 @@ struct Running {
   float lastBlitSongTime = 0.0f;
   int64_t mapTrailAt = 0;
   float mapTrailSongTime = 0.0f;
+  int64_t probesAt = 0;
   int64_t ended = 0;
   bool finished = false;
   bool active = false;
@@ -59,6 +60,7 @@ void WriteMarkerLocked() {
     if (gRunning.mapTrailAt != 0) {
       out << "trail\t" << gRunning.mapTrailAt << "\t" << gRunning.mapTrailSongTime << "\n";
     }
+    if (gRunning.probesAt != 0) out << "probes\t" << gRunning.probesAt << "\n";
     if (gRunning.ended != 0) out << "ended\t" << gRunning.ended << "\t" << (gRunning.finished ? 1 : 0) << "\n";
     out.flush();
   }
@@ -136,6 +138,8 @@ std::string ProcessPreviousRun(int64_t now) {
       } else if (key == "trail") {
         fields >> previous.mapTrailAt >> previous.mapTrailSongTime;
         hasTrail = previous.mapTrailAt != 0;
+      } else if (key == "probes") {
+        fields >> previous.probesAt;
       } else if (key == "ended") {
         int finished = 0;
         fields >> previous.ended >> finished;
@@ -169,6 +173,10 @@ std::string ProcessPreviousRun(int64_t now) {
     } else if (blitRecent) {
       blamedBlit = previous.lastBlit;
     }
+    // Nothing else to blame and realtime reflection probes were on: those.
+    // The crashes this answers come within seconds of the probe's prefab
+    // spawning, before a heartbeat, so no timing window is asked for.
+    if (blamedBlit.empty() && previous.probesAt != 0) blamedBlit = kReflectionProbesEntry;
     what = "did not end: the game crashed or was closed while it played";
   } else if (!previous.finished && hasBlit && previous.ended - previous.lastBlitAt <= kBlitToQuitSeconds &&
              now - previous.ended <= kRestartSeconds) {
@@ -188,7 +196,10 @@ std::string ProcessPreviousRun(int64_t now) {
   }
   std::string message = "Vivify crash recovery: '" + previous.levelPath + "' " + what + " (last sign of life " +
                         std::to_string(static_cast<int>(previous.heartbeatSongTime)) + " s into the song)";
-  if (blamedBlit == kMapTrailsEntry) {
+  if (blamedBlit == kReflectionProbesEntry) {
+    message += "; realtime reflection probes were on, so next time it plays with them off (with Crash Recovery "
+               "Mode off as well)";
+  } else if (blamedBlit == kMapTrailsEntry) {
     message += "; its own saber trail had just been created, so next time it plays without it (your own trail "
                "stays), and in recovery mode if that is on";
   } else {
@@ -236,6 +247,13 @@ void MapTrailStarted(float songTime, int64_t now) {
   WriteMarkerLocked();
 }
 
+void ReflectionProbesStarted(int64_t now) {
+  std::lock_guard lock(gMutex);
+  if (!gRunning.active || gRunning.ended != 0 || gRunning.probesAt != 0) return;
+  gRunning.probesAt = now;
+  WriteMarkerLocked();
+}
+
 void LevelEnded(bool finished, float songTime, int64_t now) {
   std::lock_guard lock(gMutex);
   if (!gRunning.active) return;
@@ -269,7 +287,7 @@ std::vector<std::string> SkippedBlits(std::string const& levelPath) {
   std::vector<std::string> blits;
   for (auto const& entry : Entries()) {
     if (entry.levelPath == levelPath && !entry.skippedBlit.empty() && entry.skippedBlit != kMapTrailsEntry &&
-        entry.skippedBlit != kOldMapTrailsEntry) {
+        entry.skippedBlit != kOldMapTrailsEntry && entry.skippedBlit != kReflectionProbesEntry) {
       blits.push_back(entry.skippedBlit);
     }
   }
@@ -281,6 +299,14 @@ bool SkipsMapTrails(std::string const& levelPath) {
   auto const entries = Entries();
   return std::any_of(entries.begin(), entries.end(), [&](Entry const& entry) {
     return entry.levelPath == levelPath && entry.skippedBlit == kMapTrailsEntry;
+  });
+}
+
+bool SkipsReflectionProbes(std::string const& levelPath) {
+  if (levelPath.empty()) return false;
+  auto const entries = Entries();
+  return std::any_of(entries.begin(), entries.end(), [&](Entry const& entry) {
+    return entry.levelPath == levelPath && entry.skippedBlit == kReflectionProbesEntry;
   });
 }
 
