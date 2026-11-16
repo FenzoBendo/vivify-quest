@@ -4,6 +4,7 @@
 #include "VivifyRuntimeInternal.hpp"
 #include "VivifyComponents.hpp"
 #include "VivifyBundleConvert.hpp"
+#include "UnityEngine/QualitySettings.hpp"
 #include "UnityEngine/Camera.hpp"
 #include "UnityEngine/CameraClearFlags.hpp"
 #include "UnityEngine/StereoTargetEyeMask.hpp"
@@ -109,6 +110,10 @@ std::array<SafePtr<GlobalNamespace::BloomPrePass>, 2> eyeBloom;
 std::array<SafePtr<UnityEngine::RenderTexture>, 2> colors;
 SafePtr<UnityEngine::RenderTexture> staging;
 bool rendering = false, failed = false, reported = false;
+// The game's anti-aliasing setting while the separate-eye renderer has it
+// off for a level (0.15.25); restored by Reset.
+bool msaaOverridden = false;
+int msaaRestoreValue = 0;
 // 0/1: scene eyes; 2: authored mono cameras; 3/4: per-eye screen effects.
 int captureEye = -1;
 int blitEye = -1;
@@ -756,6 +761,11 @@ void Reset(bool unloadDonors) {
   if (staging) staging->Release();
   Destroy(staging);
   width = height = 0; format = -1;
+  if (msaaOverridden) {
+    UnityEngine::QualitySettings::set_antiAliasing(msaaRestoreValue);
+    PaperLogger.info("Vivify separate-eye: anti-aliasing restored ({})", msaaRestoreValue);
+    msaaOverridden = false;
+  }
   failed = reported = false; rejection.clear(); sceneRoute = SceneRoute::Unreported;
   nativeFrames = separateFrames = 0;
   timingFrames = 0; preparationMs = peakPreparationMs = 0;
@@ -1101,8 +1111,32 @@ bool RenderEyes(UnityEngine::Camera* main, UnityEngine::RenderTextureDescriptor 
   // Unity 2021.3 CopyTextureSupport: Basic=1, DifferentTypes=4.
   int const copy = CopySupport();
   frame.copySupported = (copy & 1) != 0 && (copy & 4) != 0;
+  // An anti-aliased (MSAA) eye texture is the one obstacle the game's own
+  // settings can bring back: Yoi Okashi's tessellated scene ran on 0.15.20,
+  // then from Nov 15 every play logged "resolved cross-type texture copies
+  // are unavailable". When MSAA is all that stands in the way, turn the
+  // game's anti-aliasing off for this level (0.15.25); Reset restores it.
+  if (!frame.resolved && frame.copySupported && !msaaOverridden) {
+    FrameConditions withoutMsaa = frame;
+    withoutMsaa.resolved = true;
+    if (Rejection(withoutMsaa, false).empty()) {
+      msaaRestoreValue = UnityEngine::QualitySettings::get_antiAliasing();
+      UnityEngine::QualitySettings::set_antiAliasing(1);
+      msaaOverridden = true;
+      PaperLogger.info("Vivify separate-eye: eye image is anti-aliased ({}x MSAA, quality setting {}); anti-aliasing "
+                       "off for this level so the separate-eye scene can be drawn", desc.get_msaaSamples(),
+                       msaaRestoreValue);
+    }
+  }
   auto reason = Rejection(frame, false);
-  if (!reason.empty()) { LogRejection(reason); return false; }
+  if (!reason.empty()) {
+    if (reason == "resolved cross-type texture copies are unavailable")
+      LogRejection(std::string(reason) + " (eye MSAA " + std::to_string(desc.get_msaaSamples()) + "x, copy support " +
+                   std::to_string(copy) + ")");
+    else
+      LogRejection(reason);
+    return false;
+  }
   auto& swaps = sceneSwaps;
   rendering = true;
   Restore restore(swaps);

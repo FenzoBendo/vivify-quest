@@ -11,6 +11,23 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.25] - 2026-11-16
+
+Not tried on a headset.
+
+### Fixed
+- **Yoi Okashi** (corrects 0.15.24's diagnosis: the map relies on its
+  tessellation shaders). On 0.15.20 the Separate-Eye Renderer drew the map's
+  scene, with its tessellated shaders, for thousands of frames. From Nov 15
+  on (0.15.21, 0.15.22) every play logged "keeping normal frame: resolved
+  cross-type texture copies are unavailable", so the separate-eye scene,
+  and with it the tessellation, was never drawn. No Vivify change between
+  those versions touches that check; it fails when the eye image is
+  anti-aliased (MSAA), which the game's (or GraphicsTweaks') anti-aliasing
+  setting decides. When MSAA is the only obstacle, the renderer now turns
+  anti-aliasing off for that level and restores the setting when the level
+  ends. The message now also names the eye MSAA and copy support values.
+
 ## [0.15.24] - 2026-11-16
 
 Not tried on a headset.
