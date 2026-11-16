@@ -11,6 +11,24 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.24] - 2026-11-16
+
+Not tried on a headset.
+
+### Fixed
+- **Yoi Okashi**: the logs show its grass shader (`Roystan/Grass`) swapped
+  for its tessellated build, because **Triangle Tessellation** was on. It
+  was off when the map last looked right (0.15.20, Nov 14). Triangle
+  Tessellation is now also a per-map setting (Map Settings), so it can stay
+  on for Lifelike and be turned off for Yoi Okashi.
+- The Replay mod was never detected: it registers as "Replay" and Vivify
+  asked for "replay". Mod lookups now ignore case. This affected the replay
+  recorder ("the Replay mod is not installed") and Vivify's Replay support
+  since 0.15.19 (render camera, seek re-prepare, the Replay button).
+- Send Logs uploads only the global log's own parts (`vivify_global.txt`,
+  `vivify_global-p<N>.txt`). A copy named `vivify_global (1).txt` made the
+  relay refuse every upload with http 400.
+
 ## [0.15.23] - 2026-11-16
 
 Not tried on a headset.

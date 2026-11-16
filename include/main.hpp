@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 
 // The lite build (CMake: VIVIFY_LITE=1, see .github/workflows/build.yml) keeps
 // the feature set of 0.14.7: every setting and behaviour added after it is
@@ -85,6 +86,8 @@ bool GetReplayPlaying();
 bool GetReplayRendering();
 // Vivify's replay recorder (0.15.22, full build only).
 bool GetRecordReplays();
+// A loaded mod's handle by id, ignoring case; nullptr when not loaded.
+void* LoadedModHandle(std::string_view id);
 bool GetRecordReplaysWithBeatLeader();
 // Flushes the session and global logs to disk now.
 void FlushVivifyLogs();
