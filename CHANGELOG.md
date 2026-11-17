@@ -12,9 +12,10 @@ conversion cache version, and cached conversions are redone automatically.
 ## [Unreleased]
 
 ### Changed
-- Log relay uploads now deduplicate identical file contents against the active
-  `LOGS` branch and within each request. Fully duplicate uploads create no
-  commit; mixed uploads store only previously unseen files.
+- Log relay uploads now deduplicate identical file contents with SHA3-256 against
+  the active `LOGS` branch and within each request. A branch-side hash index avoids
+  rescanning historical blobs on normal uploads and is maintained by 30-day retention.
+  Fully duplicate uploads create no commit; mixed uploads store only new files.
 
 ## [0.15.29] - 2026-11-16
 
