@@ -93,11 +93,11 @@ function sha3Hex(bytes) { return [...sha3_256(bytes)].map(byte => byte.toString(
 const DEDUPE_INDEX_PATH = ".vivify-sha3-index.json";
 async function contentSha3(text) { return sha3Hex(new TextEncoder().encode(text)); }
 function decodeBase64Text(content) {
-  const raw = atob(content.replace(/\\n/g, ""));
+  const raw = atob(content.replace(/\n/g, ""));
   return new TextDecoder().decode(Uint8Array.from(raw, ch => ch.charCodeAt(0)));
 }
 function uploadTimestamp(path) {
-  const match = path.match(/^logs\\/(\\d{4}-\\d{2}-\\d{2})\\/(\\d{2})(\\d{2})(\\d{2})_/);
+  const match = path.match(/^logs\/(\d{4}-\d{2}-\d{2})\/(\d{2})(\d{2})(\d{2})_/);
   return match ? Date.parse(match[1] + "T" + match[2] + ":" + match[3] + ":" + match[4] + "Z") : NaN;
 }
 
@@ -336,7 +336,10 @@ function json(status, data) {
 
 export default {
   async scheduled(controller, env, ctx) {
-    ctx.waitUntil(Promise.all([pruneExpiredLogs(env), pruneLogsWhenOversized(env)]).catch(error => console.error("scheduled log maintenance failed:", error)));
+    ctx.waitUntil((async () => {
+      await pruneExpiredLogs(env);
+      await pruneLogsWhenOversized(env);
+    })().catch(error => console.error("scheduled log maintenance failed:", error)));
   },
   async fetch(request, env) {
     const url = new URL(request.url);
