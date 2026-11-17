@@ -1,4 +1,5 @@
 // Tests worker.js against a fake GitHub API: node test.mjs
+import { createHash } from "node:crypto";
 import worker from "./worker.js";
 let refSha = null, commits = {}, trees = {}, blobs = {}, n = 0, raceOnce = false, calls = [], authHeaders = [];
 globalThis.fetch = async (url, init) => {
@@ -12,7 +13,7 @@ globalThis.fetch = async (url, init) => {
   if (init.method === "GET" && path.startsWith("/git/trees/")) {
     const sha = path.split("/").pop().split("?")[0];
     const tree = (trees[sha]?.tree || []).map((entry, i) => {
-      const blobSha = "b" + sha + i;
+      const blobSha = createHash("sha1").update(`blob ${Buffer.byteLength(entry.content)}\\0`).update(entry.content).digest("hex");
       blobs[blobSha] = entry.content;
       return { path: entry.path, type: "blob", size: entry.content.length, sha: blobSha };
     });
@@ -75,8 +76,17 @@ const filtered = await (await worker.fetch(new Request("https://relay/api/logs?u
 check("log listing can filter to one upload", filtered.uploads.length === 1 && filtered.uploads[0].id === index.uploads[0].id);
 check("log listing rejects malformed date filters", (await worker.fetch(new Request("https://relay/api/logs?date=not-a-date"), env)).status === 400);
 check("dashboard rejects paths outside the log allowlist", (await worker.fetch(new Request("https://relay/api/log?path=" + encodeURIComponent("../secrets.txt")), env)).status === 400);
-r = await post(good); check("second upload builds on the branch", r.status === 200 && commits[refSha].parents[0] === first && trees[commits[refSha].tree.sha].base_tree);
-raceOnce = true; r = await post(good); check("a race retries on top of the moved branch", r.status === 200 && commits[refSha].parents[0] === "cX");
+const beforeDuplicate = refSha;
+r = await post({ ...good, upload: "1123456789abcdef" });
+check("identical files are deduplicated without a new commit", r.status === 200 && (await r.text()).includes("deduplicated 2 file(s)") && refSha === beforeDuplicate);
+r = await post({ ...good, upload: "2123456789abcdef", files: [{ name: "VivifyReport.txt", text: "hello" }, { name: "VivifyCrash.txt", text: "new crash detail" }] });
+check("mixed uploads store only files with new content", r.status === 200 && (await r.text()).includes("stored 1, deduplicated 1") && commits[refSha].parents[0] === beforeDuplicate);
+const beforeWithinBatch = refSha;
+r = await post({ ...good, upload: "3123456789abcdef", files: [{ name: "VivifyReport.txt", text: "same in request" }, { name: "VivifyCrash.txt", text: "same in request" }] });
+check("duplicates inside one request are stored only once", r.status === 200 && (await r.text()).includes("stored 1, deduplicated 1") && commits[refSha].parents[0] === beforeWithinBatch);
+raceOnce = true;
+r = await post({ ...good, upload: "4123456789abcdef", files: [{ name: "VivifyCrash.txt", text: "race-only unique payload" }] });
+check("a race retries on top of the moved branch", r.status === 200 && commits[refSha].parents[0] === "cX");
 check("bad file name refused", (await post({ ...good, files: [{ name: "../../.github/workflows/x.yml", text: "a" }] })).status === 400);
 check("other names refused", (await post({ ...good, files: [{ name: "secrets.txt", text: "a" }] })).status === 400);
 check("bad version refused", (await post({ ...good, version: "<script>" })).status === 400);
