@@ -87,7 +87,7 @@ async function invalidateLogIndexCache(env) {
 // bytes using Git's blob framing so identical files share one object identity.
 async function gitBlobSha(text) {
   const bytes = new TextEncoder().encode(text);
-  const header = new TextEncoder().encode(`blob ${bytes.length}\\0`);
+  const header = new TextEncoder().encode(`blob ${bytes.length}\0`);
   const framed = new Uint8Array(header.length + bytes.length);
   framed.set(header);
   framed.set(bytes, header.length);
