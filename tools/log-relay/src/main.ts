@@ -2,9 +2,9 @@ import './style.css';
 
 type LogFile = { name: string; path: string; size: number; sha: string };
 type Upload = { id: string; date: string; path: string; files: LogFile[]; bytes: number };
-type DashboardData = { uploads: Upload[]; days: { date: string; uploads: number; bytes: number }[]; totalBytes: number; dedupeSavedBytes: number; dedupeSavedFiles: number };
+type DashboardData = { uploads: Upload[]; days: { date: string; uploads: number; bytes: number }[]; totalBytes: number; dedupeSavedBytes: number; dedupeSavedFiles: number; dedupeSavedLines: number };
 const app = document.querySelector<HTMLDivElement>('#app')!;
-let data: DashboardData = { uploads: [], days: [], totalBytes: 0, dedupeSavedBytes: 0, dedupeSavedFiles: 0 };
+let data: DashboardData = { uploads: [], days: [], totalBytes: 0, dedupeSavedBytes: 0, dedupeSavedFiles: 0, dedupeSavedLines: 0 };
 let sortMode: "newest" | "largest" | "smallest" = "newest";
 let online = false;
 let search = '';
@@ -74,7 +74,7 @@ function render() {
             <article class="stat-card stat-primary"><div class="stat-top"><span>Total uploads</span><span class="stat-icon">${icon('download')}</span></div><div class="stat-value" id="upload-count">${data.uploads.length.toLocaleString()}</div><div class="stat-foot"><span class="pulse"></span> Updates automatically</div></article>
             <article class="stat-card"><div class="stat-top"><span>Log files received</span><span class="stat-icon muted">${icon('file')}</span></div><div class="stat-value">${data.uploads.reduce((n,u)=>n+u.files.length,0).toLocaleString()}</div><div class="stat-foot">Across all uploads</div></article>
             <article class="stat-card"><div class="stat-top"><span>Data stored</span><span class="stat-icon muted">${icon('activity')}</span></div><div class="stat-value">${bytes(data.totalBytes)}</div><div class="stat-foot">Unique diagnostic data on LOGS</div></article>
-            <article class="stat-card stat-saved"><div class="stat-top"><span>Storage saved by dedupe</span><span class="stat-icon saved-icon">${icon('activity')}</span></div><div class="stat-value">${bytes(data.dedupeSavedBytes || 0)}</div><div class="stat-foot">${(data.dedupeSavedFiles || 0).toLocaleString()} duplicate files skipped</div></article>
+            <article class="stat-card stat-saved"><div class="stat-top"><span>Storage saved by dedupe</span><span class="stat-icon saved-icon">${icon('activity')}</span></div><div class="stat-value">${bytes(data.dedupeSavedBytes || 0)}</div><div class="stat-foot">${(data.dedupeSavedLines || 0).toLocaleString()} duplicate lines shared across logs</div></article>
             <article class="stat-card"><div class="stat-top"><span>Latest upload</span><span class="stat-icon muted">${icon('refresh')}</span></div><div class="stat-value stat-date">${data.uploads[0] ? dateLabel(data.uploads[0].date) : '—'}</div><div class="stat-foot">${data.uploads[0] ? data.uploads[0].files.length + ' files in latest upload' : 'Waiting for first upload'}</div></article>
           </section>
           <section class="panel traffic-panel"><div class="panel-heading"><div><h2>Upload traffic</h2><p>Daily uploads received over the last 14 days</p></div><div class="chart-legend"><i></i> Uploads / day</div></div><div class="chart-wrap">${chart()}</div><div class="chart-summary"><strong>${data.days.slice(-14).reduce((n,d)=>n+d.uploads,0)}</strong><span>uploads in this period</span></div></section>
