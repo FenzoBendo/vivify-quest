@@ -90,6 +90,13 @@ async function invalidateLogIndexCache(env) {
 import { sha3_256 } from "@noble/hashes/sha3";
 export { sha3_256 };
 function sha3Hex(bytes) { return [...sha3_256(bytes)].map(byte => byte.toString(16).padStart(2, "0")).join(""); }
+async function gitBlobSha(bytes) {
+  const header = new TextEncoder().encode("blob " + bytes.length + "\0");
+  const input = new Uint8Array(header.length + bytes.length);
+  input.set(header); input.set(bytes, header.length);
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-1", input));
+  return [...digest].map(byte => byte.toString(16).padStart(2, "0")).join("");
+}
 const DEDUPE_INDEX_PATH = ".vivify-sha3-index.json";
 async function contentSha3(text) { return sha3Hex(new TextEncoder().encode(text)); }
 function decodeBase64Text(content) {
@@ -154,7 +161,7 @@ async function commit(env, entries, message) {
       const refs = [];
       for (const line of splitLogLines(oldText)) {
         const bytes = new TextEncoder().encode(line), hash = sha3Hex(bytes), path = LINE_PREFIX + hash;
-        refs.push({ sha: hash, bytes: bytes.length });
+        refs.push({ hash, sha: await gitBlobSha(bytes), bytes: bytes.length });
         if (!known.has(path) && !changes.has(path)) {
           changes.set(path, { path, mode: "100644", type: "blob", content: line });
           known.add(path);
@@ -205,13 +212,13 @@ async function readLogs(env) {
   if (treeResult.status !== 200) throw githubFailure("reading the logs tree", treeResult);
   const treeItems = treeResult.data.tree || [];
   const dedupeItem = treeItems.find(item => item.path === DEDUPE_INDEX_PATH && item.type === "blob");
-  let dedupeStats = { savedBytes: 0, savedFiles: 0 };
+  let dedupeStats = { savedBytes: 0, savedFiles: 0, savedLines: 0 };
   if (dedupeItem) {
     const blob = await github(env, "GET", `/git/blobs/${dedupeItem.sha}`);
     if (blob.status === 200 && typeof blob.data.content === "string") {
       try {
         const parsed = JSON.parse(decodeBase64Text(blob.data.content));
-        dedupeStats = { savedBytes: Number(parsed.stats?.savedBytes) || 0, savedFiles: Number(parsed.stats?.savedFiles) || 0 };
+        dedupeStats = { savedBytes: Number(parsed.stats?.savedBytes) || 0, savedFiles: Number(parsed.stats?.savedFiles) || 0, savedLines: Number(parsed.stats?.savedLines) || 0 };
       } catch { /* A malformed optional metric must not hide uploaded logs. */ }
     }
   }
@@ -237,7 +244,7 @@ async function readLogs(env) {
     if (!daysMap.has(upload.date)) daysMap.set(upload.date, { date: upload.date, uploads: 0, bytes: 0 });
     const day = daysMap.get(upload.date); day.uploads++; day.bytes += upload.bytes;
   }
-  return { uploads, days: [...daysMap.values()].sort((a, b) => a.date.localeCompare(b.date)), totalBytes: uploads.reduce((sum, item) => sum + item.bytes, 0), dedupeSavedBytes: dedupeStats.savedBytes, dedupeSavedFiles: dedupeStats.savedFiles };
+  return { uploads, days: [...daysMap.values()].sort((a, b) => a.date.localeCompare(b.date)), totalBytes: uploads.reduce((sum, item) => sum + item.bytes, 0), dedupeSavedBytes: dedupeStats.savedBytes, dedupeSavedFiles: dedupeStats.savedFiles, dedupeSavedLines: dedupeStats.savedLines };
 }
 
 
@@ -248,7 +255,7 @@ async function orphanedLineBlobChanges(env, items, removedPaths) {
     const blob = await github(env, "GET", "/git/blobs/" + item.sha);
     if (blob.status !== 200 || typeof blob.data.content !== "string") throw new Error("reading log manifest for line cleanup failed");
     const manifest = parseLineManifest(decodeBase64Text(blob.data.content));
-    if (manifest) for (const line of manifest.lines) used.add(line.sha);
+    if (manifest) for (const line of manifest.lines) used.add(line.hash || line.sha);
   }
   return items.filter(item => item.type === "blob" && item.path.startsWith(LINE_PREFIX) && !used.has(item.path.slice(LINE_PREFIX.length)))
     .map(item => ({ path: item.path, sha: null }));
