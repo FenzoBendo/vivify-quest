@@ -87,19 +87,19 @@ r = await post({ ...good, upload: "2123456789abcdef", files: [{ name: "VivifyRep
 check("mixed uploads store only files with new content", r.status === 200 && (await r.text()).includes("shared 1 duplicate line(s)") && commits[refSha].parents[0] === beforeDuplicate);
 const beforeWithinBatch = refSha;
 r = await post({ ...good, upload: "3123456789abcdef", files: [{ name: "VivifyReport.txt", text: "same in request" }, { name: "VivifyCrash.txt", text: "same in request" }] });
-check("duplicates inside one request are stored only once", r.status === 200 && (await r.text()).includes("stored 1, deduplicated 1") && commits[refSha].parents[0] === beforeWithinBatch);
+check("duplicates inside one request are stored only once", r.status === 200 && (await r.text()).includes("shared 1 duplicate line(s)") && commits[refSha].parents[0] === beforeWithinBatch);
 {
   const beforeSharedLines = refSha;
   r = await post({ ...good, upload: "5123456789abcdef", files: [
-    { name: "VivifyReport.txt", text: "common diagnostic line\\nreport-only line\\n" },
-    { name: "VivifyCrash.txt", text: "common diagnostic line\\ncrash-only line\\n" },
+    { name: "VivifyReport.txt", text: "common diagnostic line\nreport-only line\n" },
+    { name: "VivifyCrash.txt", text: "common diagnostic line\ncrash-only line\n" },
   ] });
   const sharedReply = await r.text();
   check("identical lines across different logs share one SHA3 line blob", r.status === 200 && sharedReply.includes("shared 1 duplicate line(s)") && refSha !== beforeSharedLines);
   const sharedLogs = await (await worker.fetch(new Request("https://relay/api/logs"), env)).json();
   const sharedFile = sharedLogs.uploads.flatMap(upload => upload.files).find(file => file.path.endsWith("/VivifyReport.txt") && file.path.includes("5123456789abcdef"));
   const sharedRead = sharedFile && await worker.fetch(new Request("https://relay/api/log?path=" + encodeURIComponent(sharedFile.path)), env);
-  check("manifest-backed log downloads reconstruct the exact original text", sharedRead?.status === 200 && await sharedRead.text() === "common diagnostic line\\nreport-only line\\n");
+  check("manifest-backed log downloads reconstruct the exact original text", sharedRead?.status === 200 && await sharedRead.text() === "common diagnostic line\nreport-only line\n");
   check("line dedupe metrics are exposed by the dashboard API", sharedLogs.dedupeSavedLines >= 1 && sharedLogs.dedupeSavedBytes > 0);
 }
 raceOnce = true;

@@ -175,7 +175,7 @@ async function commit(env, entries, message) {
       let duplicate = false;
       for (const line of splitLogLines(entry.text)) {
         const bytes = new TextEncoder().encode(line), hash = sha3Hex(bytes), path = LINE_PREFIX + hash;
-        refs.push({ sha: hash, bytes: bytes.length });
+        refs.push({ hash, sha: await gitBlobSha(bytes), bytes: bytes.length });
         if (known.has(path) || changes.has(path)) {
           savedBytes += bytes.length; savedLines++; duplicate = true;
         } else {

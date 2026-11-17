@@ -17,6 +17,14 @@ conversion cache version, and cached conversions are redone automatically.
   rescanning historical blobs on normal uploads and is maintained by 30-day retention.
   Fully duplicate uploads create no commit; mixed uploads store only new files.
 
+### Fixed
+- Log relay: logs stored as shared lines could not be opened or downloaded.
+  Each line reference held the line's SHA3 hash where the reader expects the
+  Git blob id, so every read failed with "shared log line unavailable". New
+  references carry both. Two relay tests were also wrong: one checked for
+  the old whole-file reply wording, and one wrote literal "\\n" instead of
+  line breaks, so its two logs had no line in common.
+
 ## [0.15.30] - 2026-11-17
 
 Not tried on a headset.
