@@ -47,7 +47,7 @@ const env = { GITHUB_TOKEN: "x" };
 const post = (obj) => worker.fetch(new Request("https://relay/api/upload", { method: "POST", body: JSON.stringify(obj) }), env);
 const good = { version: "0.15.20", lite: false, upload: "0123456789abcdef", files: [{ name: "VivifyReport.txt", from: 0, text: "hello" }, { name: "vivify_global-p4.txt", from: 10, text: "log" }] };
 let fails = 0; const check = (what, ok) => { console.log((ok ? "ok   " : "FAIL ") + what); if (!ok) fails++; };
-check("SHA3-256 matches the FIPS 202 abc test vector", sha3_256(new TextEncoder().encode("abc")) === "3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532");
+check("SHA3-256 matches the FIPS 202 abc test vector", Buffer.from(sha3_256(new TextEncoder().encode("abc"))).toString("hex") === "3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532");
 let r = await post(good); let t = await r.text();
 check("first upload creates the orphan branch", r.status === 200 && refSha && commits[refSha].parents.length === 0 && calls.includes("POST /git/refs"));
 const firstTree = trees[commits[refSha].tree.sha];
