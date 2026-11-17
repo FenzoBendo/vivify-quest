@@ -110,6 +110,7 @@ async function commit(env, entries, message) {
     let parent = null;
     let baseTree = undefined;
     let hashIndex = {};
+    let lastSeen = {};
     let dedupeStats = { savedBytes: 0, savedFiles: 0 };
     let indexNeedsWrite = false;
     if (ref.status === 200) {
@@ -129,6 +130,7 @@ async function commit(env, entries, message) {
         const parsed = JSON.parse(new TextDecoder().decode(Uint8Array.from(raw, ch => ch.charCodeAt(0))));
         if (parsed.version !== 1 || !parsed.hashes || typeof parsed.hashes !== "object") throw new Error("invalid SHA3 index format");
         hashIndex = parsed.hashes;
+        lastSeen = parsed.lastSeen && typeof parsed.lastSeen === "object" ? parsed.lastSeen : {};
         dedupeStats = { savedBytes: Number(parsed.stats?.savedBytes) || 0, savedFiles: Number(parsed.stats?.savedFiles) || 0 };
       } else {
         indexNeedsWrite = true;
@@ -138,7 +140,9 @@ async function commit(env, entries, message) {
           const blob = await github(env, "GET", `/git/blobs/${item.sha}`);
           if (blob.status !== 200 || typeof blob.data.content !== "string") throw new Error(`SHA3 migration failed for ${item.path}`);
           const raw = atob(blob.data.content.replace(/\n/g, ""));
-          hashIndex[sha3Hex(Uint8Array.from(raw, ch => ch.charCodeAt(0)))] = item.path;
+          const hash = sha3Hex(Uint8Array.from(raw, ch => ch.charCodeAt(0)));
+          hashIndex[hash] = item.path;
+          lastSeen[hash] = uploadTimestamp(item.path) || 0;
         }
       }
     } else if (ref.status !== 404) throw githubFailure("reading the branch", ref);
@@ -148,6 +152,7 @@ async function commit(env, entries, message) {
     for (const entry of entries) {
       const hash = await contentSha3(entry.text);
       const size = new TextEncoder().encode(entry.text).byteLength;
+      lastSeen[hash] = Date.now();
       if (hashIndex[hash] || incoming.has(hash)) {
         savedThisUpload += size;
         savedFilesThisUpload++;
@@ -160,7 +165,7 @@ async function commit(env, entries, message) {
     dedupeStats.savedFiles += savedFilesThisUpload;
     if (savedFilesThisUpload) indexNeedsWrite = true;
     if (!uniqueEntries.length && !indexNeedsWrite) return { sha: null, stored: 0, deduplicated, savedBytes: dedupeStats.savedBytes };
-    const indexText = JSON.stringify({ version: 1, algorithm: "sha3-256", stats: dedupeStats, hashes: hashIndex });
+    const indexText = JSON.stringify({ version: 1, algorithm: "sha3-256", stats: dedupeStats, hashes: hashIndex, lastSeen });
     const tree = await github(env, "POST", "/git/trees", {
       ...(baseTree ? { base_tree: baseTree } : {}),
       tree: [...uniqueEntries.map(entry => ({ path: entry.path, mode: "100644", type: "blob", content: entry.text })),
@@ -242,19 +247,31 @@ async function pruneLogsWhenOversized(env, now = Date.now()) {
     const bytesBefore = logs.reduce((sum, item) => sum + (Number(item.size) || 0), 0);
     if (bytesBefore <= limit) return { triggered: false, deletedFiles: 0, bytesBefore };
     const cutoff = now - RECENT_LOG_WINDOW_MS;
-    const expired = logs.filter(item => {
+    const candidates = logs.filter(item => {
       const timestamp = uploadTimestamp(item.path);
       return !Number.isFinite(timestamp) || timestamp < cutoff;
     });
-    if (!expired.length) return { triggered: true, deletedFiles: 0, bytesBefore, protectedRecentBytes: bytesBefore };
-    const expiredPaths = new Set(expired.map(item => item.path));
-    const changes = expired.map(item => ({ path: item.path, sha: null }));
     const indexItem = items.find(item => item.path === DEDUPE_INDEX_PATH && item.type === "blob");
+    let index = null;
+    const protectedPaths = new Set();
     if (indexItem) {
       const indexBlob = await github(env, "GET", `/git/blobs/${indexItem.sha}`);
       if (indexBlob.status !== 200 || typeof indexBlob.data.content !== "string") throw new Error("reading SHA3 index during size cleanup failed");
-      const index = JSON.parse(decodeBase64Text(indexBlob.data.content));
-      for (const [hash, storedPath] of Object.entries(index.hashes || {})) if (expiredPaths.has(storedPath)) delete index.hashes[hash];
+      index = JSON.parse(decodeBase64Text(indexBlob.data.content));
+      for (const [hash, storedPath] of Object.entries(index.hashes || {})) {
+        if (Number(index.lastSeen?.[hash]) >= cutoff) protectedPaths.add(storedPath);
+      }
+    }
+    // A recent duplicate can point at an older canonical blob; retain that blob
+    // until its content has not been seen for the full two-hour window.
+    const expired = candidates.filter(item => !protectedPaths.has(item.path));
+    if (!expired.length) return { triggered: true, deletedFiles: 0, bytesBefore, protectedRecentBytes: bytesBefore };
+    const expiredPaths = new Set(expired.map(item => item.path));
+    const changes = expired.map(item => ({ path: item.path, sha: null }));
+    if (index) {
+      for (const [hash, storedPath] of Object.entries(index.hashes || {})) {
+        if (expiredPaths.has(storedPath)) { delete index.hashes[hash]; delete index.lastSeen?.[hash]; }
+      }
       changes.push({ path: DEDUPE_INDEX_PATH, mode: "100644", type: "blob", content: JSON.stringify(index) });
     }
     const tree = await github(env, "POST", "/git/trees", { base_tree: commitResult.data.tree.sha, tree: changes });
