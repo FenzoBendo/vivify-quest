@@ -11,6 +11,11 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+### Changed
+- Log relay uploads now deduplicate identical file contents against the active
+  `LOGS` branch and within each request. Fully duplicate uploads create no
+  commit; mixed uploads store only previously unseen files.
+
 ## [0.15.29] - 2026-11-16
 
 Not tried on a headset.
