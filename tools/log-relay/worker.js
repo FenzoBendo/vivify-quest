@@ -323,7 +323,9 @@ async function pruneExpiredLogs(env, now = Date.now()) {
       if (indexBlob.status !== 200 || typeof indexBlob.data.content !== "string") throw new Error("reading SHA3 index during retention failed");
       const raw = atob(indexBlob.data.content.replace(/\n/g, ""));
       const index = JSON.parse(new TextDecoder().decode(Uint8Array.from(raw, ch => ch.charCodeAt(0))));
-      for (const [hash, storedPath] of Object.entries(index.hashes || {})) if (expiredPaths.has(storedPath)) delete index.hashes[hash];
+      for (const [hash, storedPath] of Object.entries(index.hashes || {})) {
+        if (expiredPaths.has(storedPath)) { delete index.hashes[hash]; delete index.lastSeen?.[hash]; }
+      }
       changes.push({ path: DEDUPE_INDEX_PATH, mode: "100644", type: "blob", content: JSON.stringify(index) });
     }
     const tree = await github(env, "POST", "/git/trees", {
