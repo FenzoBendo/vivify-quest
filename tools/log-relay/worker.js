@@ -374,7 +374,7 @@ export default {
       try {
         const data = await readLogsCached(env);
         // writeReady indicates that the upload secret is configured.
-        return json(200, { ok: true, writeReady: Boolean(env.GITHUB_TOKEN), uploadCount: data.uploads.length, fileCount: data.uploads.reduce((n, u) => n + u.files.length, 0), totalBytes: data.totalBytes, updatedAt: new Date().toISOString() });
+        return json(200, { ok: true, writeReady: Boolean(env.GITHUB_TOKEN), uploadCount: data.uploads.length, fileCount: data.uploads.reduce((n, u) => n + u.files.length, 0), totalBytes: data.totalBytes, dedupeSavedBytes: data.dedupeSavedBytes, dedupeSavedFiles: data.dedupeSavedFiles, updatedAt: new Date().toISOString() });
       } catch (error) { return json(502, { error: error.message }); }
     }
     if (request.method === "GET" && url.pathname === "/api/logs") {
