@@ -6,8 +6,7 @@ those uploads. Before committing, it hashes each file with SHA3-256 and skips co
 present on the active branch, including duplicates within one request. A compact
 `.vivify-sha3-index.json` is stored on the branch so normal uploads do not need to
 re-download every historical log. The first upload after upgrading backfills the index
-from existing logs. Mixed uploads store only their new files; fully duplicate uploads
-create no commit. The 30-day retention task also removes expired entries from the index. The index also tracks cumulative duplicate bytes/files avoided and the last-seen time for each canonical blob, so recent duplicate uploads remain protected during emergency cleanup.
+from existing logs. Mixed uploads store only their new files; fully duplicate uploads create a small metadata commit to persist cumulative savings, without adding duplicate log blobs. Both retention tasks remove expired entries from the index. The index also tracks cumulative duplicate bytes/files avoided and the last-seen time for each canonical blob, so recent duplicate uploads remain protected during emergency cleanup.
 
 ## Dashboard (1.1.0)
 
