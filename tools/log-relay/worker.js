@@ -101,6 +101,7 @@ async function commit(env, entries, message) {
     let parent = null;
     let baseTree = undefined;
     let hashIndex = {};
+    let indexNeedsWrite = false;
     if (ref.status === 200) {
       parent = ref.data.object.sha;
       const parentCommit = await github(env, "GET", `/git/commits/${parent}`);
@@ -114,17 +115,18 @@ async function commit(env, entries, message) {
       if (indexItem) {
         const result = await github(env, "GET", `/git/blobs/${indexItem.sha}`);
         if (result.status !== 200 || typeof result.data.content !== "string") throw new Error("reading SHA3 index failed");
-        const raw = atob(result.data.content.replace(/\\n/g, ""));
+        const raw = atob(result.data.content.replace(/\n/g, ""));
         const parsed = JSON.parse(new TextDecoder().decode(Uint8Array.from(raw, ch => ch.charCodeAt(0))));
         if (parsed.version !== 1 || !parsed.hashes || typeof parsed.hashes !== "object") throw new Error("invalid SHA3 index format");
         hashIndex = parsed.hashes;
       } else {
+        indexNeedsWrite = true;
         // Backfill existing logs once when upgrading from the SHA-1 deduper.
         for (const item of items) {
           if (item.type !== "blob" || !item.path.startsWith("logs/")) continue;
           const blob = await github(env, "GET", `/git/blobs/${item.sha}`);
           if (blob.status !== 200 || typeof blob.data.content !== "string") throw new Error(`SHA3 migration failed for ${item.path}`);
-          const raw = atob(blob.data.content.replace(/\\n/g, ""));
+          const raw = atob(blob.data.content.replace(/\n/g, ""));
           hashIndex[sha3_256(Uint8Array.from(raw, ch => ch.charCodeAt(0)))] = item.path;
         }
       }
@@ -136,7 +138,7 @@ async function commit(env, entries, message) {
       incoming.add(hash); hashIndex[hash] = entry.path; uniqueEntries.push(entry);
     }
     const deduplicated = entries.length - uniqueEntries.length;
-    if (!uniqueEntries.length) return { sha: null, stored: 0, deduplicated };
+    if (!uniqueEntries.length && !indexNeedsWrite) return { sha: null, stored: 0, deduplicated };
     const indexText = JSON.stringify({ version: 1, algorithm: "sha3-256", hashes: hashIndex });
     const tree = await github(env, "POST", "/git/trees", {
       ...(baseTree ? { base_tree: baseTree } : {}),
@@ -219,7 +221,7 @@ async function pruneExpiredLogs(env, now = Date.now()) {
     if (indexItem) {
       const indexBlob = await github(env, "GET", `/git/blobs/${indexItem.sha}`);
       if (indexBlob.status !== 200 || typeof indexBlob.data.content !== "string") throw new Error("reading SHA3 index during retention failed");
-      const raw = atob(indexBlob.data.content.replace(/\\n/g, ""));
+      const raw = atob(indexBlob.data.content.replace(/\n/g, ""));
       const index = JSON.parse(new TextDecoder().decode(Uint8Array.from(raw, ch => ch.charCodeAt(0))));
       for (const [hash, storedPath] of Object.entries(index.hashes || {})) if (expiredPaths.has(storedPath)) delete index.hashes[hash];
       changes.push({ path: DEDUPE_INDEX_PATH, mode: "100644", type: "blob", content: JSON.stringify(index) });
