@@ -277,11 +277,13 @@ async function pruneLogsWhenOversized(env, now = Date.now()) {
     const tree = await github(env, "POST", "/git/trees", { base_tree: commitResult.data.tree.sha, tree: changes });
     if (tree.status !== 201) throw githubFailure("building size-cleanup tree", tree);
     const made = await github(env, "POST", "/git/commits", {
-      message: `Automatic storage cleanup: remove ${expired.length} log file(s), preserving the last two hours`,
-      tree: tree.data.sha, parents: [headSha],
+      message: `Automatic storage cleanup: remove ${expired.length} log file(s), preserve two hours, compact history`,
+      // Start a fresh root commit so deleted log blobs are no longer reachable
+      // through the LOGS branch's prior upload history.
+      tree: tree.data.sha, parents: [],
     });
     if (made.status !== 201) throw githubFailure("committing size cleanup", made);
-    const moved = await github(env, "PATCH", "/git/refs/heads/" + branch, { sha: made.data.sha, force: false });
+    const moved = await github(env, "PATCH", "/git/refs/heads/" + branch, { sha: made.data.sha, force: true });
     if (moved.status === 200) {
       await invalidateLogIndexCache(env);
       return { triggered: true, deletedFiles: expired.length, bytesBefore, protectedRecentBytes: logs.filter(item => !expiredPaths.has(item.path)).reduce((sum, item) => sum + (Number(item.size) || 0), 0) };
