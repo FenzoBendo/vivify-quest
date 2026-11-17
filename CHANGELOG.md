@@ -17,6 +17,58 @@ conversion cache version, and cached conversions are redone automatically.
   rescanning historical blobs on normal uploads and is maintained by 30-day retention.
   Fully duplicate uploads create no commit; mixed uploads store only new files.
 
+### Fixed
+- Log relay: back to deduplicating whole identical files. The line-level
+  deduplication stored every distinct log line as its own file on `LOGS`.
+  Three ordinary uploads already hold about 18,800 distinct lines, and GitHub
+  stops listing a tree in full at 100,000 entries, after which every upload
+  was refused. The first upload would also have converted all 534 stored
+  logs, and opening an 11,000-line log took one GitHub request per line,
+  both well past a Worker's request limit. Storage cleanup stays append-only
+  (no forced history rewrite).
+- Log relay: the SHA3 index no longer backfills existing logs on the first
+  upload, which also took one request per stored log. Logs stored before the
+  index existed are not deduplicated against; they leave with the 30-day
+  retention.
+
+## [0.15.30] - 2026-11-17
+
+Not tried on a headset.
+
+### Fixed
+- Doubled strips at the top and bottom of the screen during post-process
+  sections (Lifelike, Luminescent). Vivify's own effect and blit textures
+  -- the per-eye temporaries, the mid-frame targets, the effect textures and
+  the separate-eye targets -- now clamp at their edges. They used to keep
+  whatever wrap mode they were created or pooled with, so an effect that
+  shifts its UVs past the edge (VHS, glitch, warp, chromatic offset) drew a
+  repeated copy of the far side of the picture where PC Vivify, whose
+  temporaries clamp, draws the edge. Textures a map declares keep the wrap
+  mode the map gave them.
+- Triangle Tessellation no longer refuses a shader because one stage
+  compiles a keyword the others do not. Lifelike's Bytesized/Grass has 16
+  vertex variants (the extra 8 for GPU instancing) and 8 of every other
+  stage; the pairing now leaves the instancing variants out and pairs the
+  rest. Converted bundles are redone once (conversion version 28).
+
+### Added
+- A per-eye check for Aether's screen effects. Aether runs its bokeh and
+  fade effects once per eye on the two halves of the native stereo picture.
+  The flat-screen check only ever measured the left eye, so a dead right
+  eye went unreported. Now, once per set of effects each level, both eyes
+  are measured going in and coming out ("Vivify stereo effect eyes: ...").
+  That shows which eye dies, and whether the effect or the scene feeding
+  it is to blame. This is a diagnostic only; nothing is changed yet.
+
+### Known
+- Lifelike's grass still does not draw. With the pairing fixed, its hull
+  shader is the next blocker: it works out a separate tessellation factor
+  for each edge in fork and join phases, and the translator only handles
+  hull shaders that use one uniform factor. That needs a general hull-shader
+  translator, which is a larger piece of work. Luminescent has no geometry
+  or tessellation shaders at all (all 18 of its shaders translate), so
+  anything missing there is a different cause.
+
 ## [0.15.29] - 2026-11-16
 
 Not tried on a headset.

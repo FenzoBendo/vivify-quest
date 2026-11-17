@@ -127,7 +127,7 @@ bool Runtime::TryApplyStereoBlits(UnityEngine::RenderTexture* src, UnityEngine::
   struct Temporary {
     SafePtr<UnityEngine::RenderTexture> value;
     explicit Temporary(UnityEngine::RenderTextureDescriptor d)
-        : value(UnityEngine::RenderTexture::GetTemporary(d).unsafePtr()) {
+        : value(ClampWrap(UnityEngine::RenderTexture::GetTemporary(d).unsafePtr())) {
       if (!value || !IsManagedAlive(value.ptr())) throw std::runtime_error("stereo effect texture allocation failed");
     }
     ~Temporary() { if (value && IsManagedAlive(value.ptr())) UnityEngine::RenderTexture::ReleaseTemporary(value.ptr()); }
@@ -178,6 +178,7 @@ bool Runtime::TryApplyStereoBlits(UnityEngine::RenderTexture* src, UnityEngine::
       SeparateEye::EndBlitEye();
     }
     if (!bindings.Restore()) { SeparateEye::RejectCameraBindings(); return false; }
+    StereoEyeCheck(src, stereo.get());
     ApplyBlits(stereo.get(), dest, cameraName, -1);
     static bool reported = false;
     if (!reported) { PaperLogger.info("Vivify stereo screen effects: explicit-eye image processing; reusing the native multiview scene"); reported = true; }
@@ -267,7 +268,7 @@ void Runtime::ApplyBlits(UnityEngine::RenderTexture* src, UnityEngine::RenderTex
         desc.set_vrUsage(UnityEngine::VRTextureUsage::None);
         desc.set_msaaSamples(1);
         desc.set_depthBufferBits(0);
-        guardEye = UnityEngine::RenderTexture::GetTemporary(desc).unsafePtr();
+        guardEye = ClampWrap(UnityEngine::RenderTexture::GetTemporary(desc).unsafePtr());
         if (!IsManagedAlive(guardEye)) {
           guardEye = nullptr;
           return;
@@ -320,9 +321,9 @@ void Runtime::ApplyBlits(UnityEngine::RenderTexture* src, UnityEngine::RenderTex
       inputDesc.set_dimension(UnityEngine::Rendering::TextureDimension::Tex2D);
       inputDesc.set_volumeDepth(1); inputDesc.set_vrUsage(UnityEngine::VRTextureUsage::None);
       inputDesc.set_depthBufferBits(0); inputDesc.set_memoryless(UnityEngine::RenderTextureMemoryless::None);
-      auto* eyeIn = sourceArray ? UnityEngine::RenderTexture::GetTemporary(inputDesc).unsafePtr() : nullptr;
+      auto* eyeIn = sourceArray ? ClampWrap(UnityEngine::RenderTexture::GetTemporary(inputDesc).unsafePtr()) : nullptr;
       if (IsManagedAlive(eyeIn)) selfBlitTemps.emplace_back(eyeIn);
-      auto* eyeOut = UnityEngine::RenderTexture::GetTemporary(desc).unsafePtr();
+      auto* eyeOut = ClampWrap(UnityEngine::RenderTexture::GetTemporary(desc).unsafePtr());
       if (IsManagedAlive(eyeOut)) selfBlitTemps.emplace_back(eyeOut);
       if ((!sourceArray || IsManagedAlive(eyeIn)) && IsManagedAlive(eyeOut)) {
         auto eyeInId = sourceArray ? ToTargetId(eyeIn) : srcId;
@@ -401,7 +402,7 @@ void Runtime::ApplyBlits(UnityEngine::RenderTexture* src, UnityEngine::RenderTex
 
             auto desc = target->get_descriptor();
             auto temp = UnityEngine::RenderTexture::GetTemporary(desc);
-            auto* tempPtr = temp.unsafePtr();
+            auto* tempPtr = ClampWrap(temp.unsafePtr());
             if (!IsManagedAlive(tempPtr)) continue;
             selfBlitTemps.emplace_back(tempPtr);
             emitBlit(blitSrc, tempPtr, data.material, data.pass);
@@ -512,6 +513,39 @@ int DistinctBlockColours(UnityEngine::RenderTexture* probe, UnityEngine::Texture
 }
 }  // namespace
 
+// Per-eye check of the explicit-eye screen effects (0.15.30). Aether runs
+// its bokeh and fade effects once per eye on the slices of the native
+// two-eye picture; the flat-screen guard below only ever measured the left
+// slice, so a right eye that came out dead went unreported. Once per set of
+// active effects per level, each eye's picture is measured going in (src)
+// and coming out (stereo) in 16 blocks.
+void Runtime::StereoEyeCheck(UnityEngine::RenderTexture* src, UnityEngine::RenderTexture* stereo) {
+  std::string names;
+  for (auto const* list : {&_preEffects, &_postEffects})
+    for (auto const& effect : *list) names += (names.empty() ? "" : ", ") + effect.data.asset;
+  if (names.empty() || !_stereoEyeChecked.insert(names).second) return;
+  if (!EnsureBlitGuardTextures()) return;
+  int counts[2][2] = {};
+  int colours[2][2][3] = {};
+  auto* cb = ImmediateCommandBuffer();
+  for (int eye = 0; eye < 2; ++eye) {
+    BlitSlice(cb, ToTargetId(src), eye, ToTargetId(_blitGuardIn), -1);
+    BlitSlice(cb, ToTargetId(stereo), eye, ToTargetId(_blitGuardOut), -1);
+    UnityEngine::Graphics::ExecuteCommandBuffer(cb);
+    cb->Clear();
+    counts[eye][0] = DistinctBlockColours(_blitGuardIn, _blitGuardReader, colours[eye][0]);
+    counts[eye][1] = DistinctBlockColours(_blitGuardOut, _blitGuardReader, colours[eye][1]);
+  }
+  auto text = [&](int eye, int side) {
+    int const n = counts[eye][side];
+    auto const* c = colours[eye][side];
+    return (n < 0 ? std::string("unreadable") : (n > 2 ? std::string("3+") : std::to_string(n)) + " colour(s)") +
+        " rgb=(" + std::to_string(c[0]) + "," + std::to_string(c[1]) + "," + std::to_string(c[2]) + ")";
+  };
+  PaperLogger.info("Vivify stereo effect eyes: [{}] left in {} out {}; right in {} out {}", names, text(0, 0),
+                   text(0, 1), text(1, 0), text(1, 1));
+}
+
 // Flat-screen guard (0.15.11, as asked): every 2 s while an effect is on, the
 // picture coming out of the effects is measured in 16 blocks. If they are
 // all one colour, or only two, every screen effect is switched off for the
@@ -579,8 +613,8 @@ bool Runtime::EnsureMidRenderTextures() {
                                                              alive && _midMainRT->IsCreated() && _midScratchRT->IsCreated());
   if (!mismatch) return true;
   ReleaseMidRenderTextures();
-  _midMainRT = UnityEngine::RenderTexture::New_ctor(desc);
-  _midScratchRT = UnityEngine::RenderTexture::New_ctor(desc);
+  _midMainRT = ClampWrap(UnityEngine::RenderTexture::New_ctor(desc));
+  _midScratchRT = ClampWrap(UnityEngine::RenderTexture::New_ctor(desc));
   if (!IsAlive(_midMainRT) || !IsAlive(_midScratchRT) || !_midMainRT->Create() || !_midScratchRT->Create()) {
     ReleaseMidRenderTextures();
     return false;
@@ -674,7 +708,7 @@ UnityEngine::Rendering::CommandBuffer* Runtime::BuildMidRenderCommandBuffer(
         if (target == blitSrcTexture) {
 
           auto temp = UnityEngine::RenderTexture::GetTemporary(target->get_descriptor());
-          auto* tempPtr = temp.unsafePtr();
+          auto* tempPtr = ClampWrap(temp.unsafePtr());
           if (!IsManagedAlive(tempPtr)) continue;
           _midSelfBlitTemps.emplace_back(tempPtr);
           emitBlit(blitSrcId, tempPtr, data.material, data.pass);
@@ -767,7 +801,7 @@ UnityEngine::RenderTexture* Runtime::EnsureCachedBlitTexture(UnityEngine::Render
   if (!RenderTexturePolicy::NeedsAllocation(allocation, requested, alive, alive && texture->IsCreated())) return texture;
   ReleaseRenderTexture(texture);
   allocation.reset();
-  texture = UnityEngine::RenderTexture::New_ctor(desc);
+  texture = ClampWrap(UnityEngine::RenderTexture::New_ctor(desc));
   if (!IsAlive(texture)) { texture = nullptr; return nullptr; }
   if (!texture->Create()) { ReleaseRenderTexture(texture); return nullptr; }
   allocation = requested;

@@ -517,7 +517,7 @@ void EnsureTargets(UnityEngine::RenderTextureDescriptor descriptor) {
   descriptor.set_dimension(UnityEngine::Rendering::TextureDimension::Tex2D);
   descriptor.set_volumeDepth(1); descriptor.set_depthBufferBits(24);
   for (auto& texture : colors) {
-    texture = UnityEngine::RenderTexture::New_ctor(descriptor);
+    texture = ClampWrap(UnityEngine::RenderTexture::New_ctor(descriptor));
     texture->set_name(&texture == &colors[0] ? u"Vivify Eye Color Left" : u"Vivify Eye Color Right");
     if (!texture->Create()) throw std::runtime_error("could not create ordinary eye target");
   }
@@ -1374,7 +1374,7 @@ bool TryRender(UnityEngine::Camera* main, UnityEngine::RenderTexture* source, Ca
     if (!staging || !staging->IsCreated()) {
       expected.set_dimension(UnityEngine::Rendering::TextureDimension::Tex2DArray);
       expected.set_volumeDepth(2); expected.set_depthBufferBits(0);
-      staging = UnityEngine::RenderTexture::New_ctor(expected);
+      staging = ClampWrap(UnityEngine::RenderTexture::New_ctor(expected));
       staging->set_name(u"Vivify Stereo Staging");
       if (!staging->Create()) throw std::runtime_error("could not create presentation staging array");
     }

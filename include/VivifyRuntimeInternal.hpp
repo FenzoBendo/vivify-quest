@@ -14,6 +14,8 @@
 #include <algorithm>
 #include "UnityEngine/ReflectionProbe.hpp"
 #include "UnityEngine/Rendering/CommandBuffer.hpp"
+#include "UnityEngine/RenderTexture.hpp"
+#include "UnityEngine/TextureWrapMode.hpp"
 #include "UnityEngine/AssetBundleCreateRequest.hpp"
 #include "UnityEngine/AssetBundleRequest.hpp"
 #include "System/Collections/Generic/List_1.hpp"
@@ -25,6 +27,19 @@ namespace Vivify {
 // renders with (Camera.main then draws only the UI). Map effects, depth,
 // culling and the HUD go to whichever this returns.
 UnityEngine::Camera* VivifyMainCamera();
+
+// Vivify's own effect and blit textures clamp (0.15.30). A new RenderTexture
+// or a pooled RenderTexture.GetTemporary one keeps whatever wrap mode it was
+// given (pooled ones: whatever the last user left), and PC Vivify's
+// CommandBuffer temporaries and camera targets clamp. A post-process that
+// shifts its UVs past the edge (VHS, glitch, warp, chromatic offset) then
+// samples the edge row on PC but a repeated copy of the far side here: the
+// strips of the picture doubled at the top and bottom of the screen.
+// Map-declared textures keep the wrap mode the map gave them.
+inline UnityEngine::RenderTexture* ClampWrap(UnityEngine::RenderTexture* texture) {
+  if (texture && IsManagedAlive(texture)) texture->set_wrapMode(UnityEngine::TextureWrapMode::Clamp);
+  return texture;
+}
 }  // namespace Vivify
 
 namespace Vivify {
@@ -641,6 +656,10 @@ private:
   bool EnsureBlitGuardTextures();
   bool BlitGuardDue(std::vector<UnityEngine::Material*> const& materials);
   void BlitGuardEvaluate(std::vector<UnityEngine::Material*> const& materials, UnityEngine::RenderTexture* src);
+  // Per-eye check of the explicit-eye screen effects (0.15.30): each eye's
+  // picture going in and coming out, once per set of effects per level.
+  void StereoEyeCheck(UnityEngine::RenderTexture* src, UnityEngine::RenderTexture* stereo);
+  std::set<std::string> _stereoEyeChecked;
   std::optional<RenderTexturePolicy::Descriptor> _mainBlitAllocation, _scratchBlitAllocation;
   struct BlitMaterialValidity {
     SafePtr<UnityEngine::Material> material;
