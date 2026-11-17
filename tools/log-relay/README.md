@@ -36,9 +36,16 @@ listed in the relay's log index; the GitHub write token remains in the Worker
 secret and is never sent to the browser.
 
 A scheduled Worker task runs hourly and removes log files whose upload date is
-more than 30 days old from the active `LOGS` branch. Expiration is based on
-the upload's UTC timestamp encoded in its stored path. This is branch-level retention: because
-Git stores prior commits, an expired file can remain in old commit history.
+more than 30 days old from the active `LOGS` branch. In addition, the relay
+checks active-branch log storage after every accepted upload and during
+scheduled maintenance. When it exceeds `MAX_LOG_STORAGE_BYTES` (default
+450 MiB), it removes all log blobs older than the preceding two hours. The
+SHA3 index is updated in the same operation. A blob whose content was
+deduplicated from a recent upload is protected using its last-seen timestamp.
+The emergency cleanup writes a fresh root commit to the `LOGS` branch, so
+deleted log history is no longer reachable from that branch and can eventually
+be reclaimed by GitHub garbage collection. If the recent two-hour window alone
+exceeds the budget, those files are preserved rather than deleted.
 
 
 ## Set up and deploy
