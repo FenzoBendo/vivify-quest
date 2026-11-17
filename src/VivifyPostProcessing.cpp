@@ -127,7 +127,7 @@ bool Runtime::TryApplyStereoBlits(UnityEngine::RenderTexture* src, UnityEngine::
   struct Temporary {
     SafePtr<UnityEngine::RenderTexture> value;
     explicit Temporary(UnityEngine::RenderTextureDescriptor d)
-        : value(UnityEngine::RenderTexture::GetTemporary(d).unsafePtr()) {
+        : value(ClampWrap(UnityEngine::RenderTexture::GetTemporary(d).unsafePtr())) {
       if (!value || !IsManagedAlive(value.ptr())) throw std::runtime_error("stereo effect texture allocation failed");
     }
     ~Temporary() { if (value && IsManagedAlive(value.ptr())) UnityEngine::RenderTexture::ReleaseTemporary(value.ptr()); }
@@ -267,7 +267,7 @@ void Runtime::ApplyBlits(UnityEngine::RenderTexture* src, UnityEngine::RenderTex
         desc.set_vrUsage(UnityEngine::VRTextureUsage::None);
         desc.set_msaaSamples(1);
         desc.set_depthBufferBits(0);
-        guardEye = UnityEngine::RenderTexture::GetTemporary(desc).unsafePtr();
+        guardEye = ClampWrap(UnityEngine::RenderTexture::GetTemporary(desc).unsafePtr());
         if (!IsManagedAlive(guardEye)) {
           guardEye = nullptr;
           return;
@@ -320,9 +320,9 @@ void Runtime::ApplyBlits(UnityEngine::RenderTexture* src, UnityEngine::RenderTex
       inputDesc.set_dimension(UnityEngine::Rendering::TextureDimension::Tex2D);
       inputDesc.set_volumeDepth(1); inputDesc.set_vrUsage(UnityEngine::VRTextureUsage::None);
       inputDesc.set_depthBufferBits(0); inputDesc.set_memoryless(UnityEngine::RenderTextureMemoryless::None);
-      auto* eyeIn = sourceArray ? UnityEngine::RenderTexture::GetTemporary(inputDesc).unsafePtr() : nullptr;
+      auto* eyeIn = sourceArray ? ClampWrap(UnityEngine::RenderTexture::GetTemporary(inputDesc).unsafePtr()) : nullptr;
       if (IsManagedAlive(eyeIn)) selfBlitTemps.emplace_back(eyeIn);
-      auto* eyeOut = UnityEngine::RenderTexture::GetTemporary(desc).unsafePtr();
+      auto* eyeOut = ClampWrap(UnityEngine::RenderTexture::GetTemporary(desc).unsafePtr());
       if (IsManagedAlive(eyeOut)) selfBlitTemps.emplace_back(eyeOut);
       if ((!sourceArray || IsManagedAlive(eyeIn)) && IsManagedAlive(eyeOut)) {
         auto eyeInId = sourceArray ? ToTargetId(eyeIn) : srcId;
@@ -401,7 +401,7 @@ void Runtime::ApplyBlits(UnityEngine::RenderTexture* src, UnityEngine::RenderTex
 
             auto desc = target->get_descriptor();
             auto temp = UnityEngine::RenderTexture::GetTemporary(desc);
-            auto* tempPtr = temp.unsafePtr();
+            auto* tempPtr = ClampWrap(temp.unsafePtr());
             if (!IsManagedAlive(tempPtr)) continue;
             selfBlitTemps.emplace_back(tempPtr);
             emitBlit(blitSrc, tempPtr, data.material, data.pass);
@@ -579,8 +579,8 @@ bool Runtime::EnsureMidRenderTextures() {
                                                              alive && _midMainRT->IsCreated() && _midScratchRT->IsCreated());
   if (!mismatch) return true;
   ReleaseMidRenderTextures();
-  _midMainRT = UnityEngine::RenderTexture::New_ctor(desc);
-  _midScratchRT = UnityEngine::RenderTexture::New_ctor(desc);
+  _midMainRT = ClampWrap(UnityEngine::RenderTexture::New_ctor(desc));
+  _midScratchRT = ClampWrap(UnityEngine::RenderTexture::New_ctor(desc));
   if (!IsAlive(_midMainRT) || !IsAlive(_midScratchRT) || !_midMainRT->Create() || !_midScratchRT->Create()) {
     ReleaseMidRenderTextures();
     return false;
@@ -674,7 +674,7 @@ UnityEngine::Rendering::CommandBuffer* Runtime::BuildMidRenderCommandBuffer(
         if (target == blitSrcTexture) {
 
           auto temp = UnityEngine::RenderTexture::GetTemporary(target->get_descriptor());
-          auto* tempPtr = temp.unsafePtr();
+          auto* tempPtr = ClampWrap(temp.unsafePtr());
           if (!IsManagedAlive(tempPtr)) continue;
           _midSelfBlitTemps.emplace_back(tempPtr);
           emitBlit(blitSrcId, tempPtr, data.material, data.pass);
@@ -767,7 +767,7 @@ UnityEngine::RenderTexture* Runtime::EnsureCachedBlitTexture(UnityEngine::Render
   if (!RenderTexturePolicy::NeedsAllocation(allocation, requested, alive, alive && texture->IsCreated())) return texture;
   ReleaseRenderTexture(texture);
   allocation.reset();
-  texture = UnityEngine::RenderTexture::New_ctor(desc);
+  texture = ClampWrap(UnityEngine::RenderTexture::New_ctor(desc));
   if (!IsAlive(texture)) { texture = nullptr; return nullptr; }
   if (!texture->Create()) { ReleaseRenderTexture(texture); return nullptr; }
   allocation = requested;

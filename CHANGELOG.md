@@ -17,6 +17,35 @@ conversion cache version, and cached conversions are redone automatically.
   rescanning historical blobs on normal uploads and is maintained by 30-day retention.
   Fully duplicate uploads create no commit; mixed uploads store only new files.
 
+## [0.15.30] - 2026-11-17
+
+Not tried on a headset.
+
+### Fixed
+- Doubled strips at the top and bottom of the screen during post-process
+  sections (Lifelike, Luminescent). Vivify's own effect and blit textures
+  -- the per-eye temporaries, the mid-frame targets, the effect textures and
+  the separate-eye targets -- now clamp at their edges. They used to keep
+  whatever wrap mode they were created or pooled with, so an effect that
+  shifts its UVs past the edge (VHS, glitch, warp, chromatic offset) drew a
+  repeated copy of the far side of the picture where PC Vivify, whose
+  temporaries clamp, draws the edge. Textures a map declares keep the wrap
+  mode the map gave them.
+- Triangle Tessellation no longer refuses a shader because one stage
+  compiles a keyword the others do not. Lifelike's Bytesized/Grass has 16
+  vertex variants (the extra 8 for GPU instancing) and 8 of every other
+  stage; the pairing now leaves the instancing variants out and pairs the
+  rest. Converted bundles are redone once (conversion version 28).
+
+### Known
+- Lifelike's grass still does not draw. With the pairing fixed, its hull
+  shader is the next blocker: it works out a separate tessellation factor
+  for each edge in fork and join phases, and the translator only handles
+  hull shaders that use one uniform factor. That needs a general hull-shader
+  translator, which is a larger piece of work. Luminescent has no geometry
+  or tessellation shaders at all (all 18 of its shaders translate), so
+  anything missing there is a different cause.
+
 ## [0.15.29] - 2026-11-16
 
 Not tried on a headset.

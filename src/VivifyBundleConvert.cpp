@@ -1944,6 +1944,36 @@ LinkedShader ConvertThroughParsedForm(uint8_t const* nodeData, size_t nodeSize,
     auto const& hulls = byStage[3][key];
     auto const& domains = byStage[4][key];
     if (conversionOptions.uniformTriangleTessellation && (!hulls.empty() || !domains.empty())) {
+      // Stage-local keywords (0.15.30). Unity compiles a keyword only into
+      // the stages that use it: Lifelike's Bytesized/Grass has 16 vertex
+      // variants but 8 of every other stage, the extra 8 adding a keyword
+      // (GPU instancing) that no other stage carries. Requiring every
+      // vertex variant to have an identical hull/domain/geometry/fragment
+      // twin refused the whole shader, so the grass never tessellated. A
+      // variant with a keyword that not all five stages compile is left
+      // out of the pairing (it stays as it was: converted materials have
+      // instancing turned off, so it is not drawn); the rest pair exactly.
+      std::array<std::set<int>, 5> universe;
+      std::array<std::vector<ParsedProgramRef const*> const*, 5> const all = {&vertices, &fragments, &geometries,
+                                                                              &hulls, &domains};
+      for (size_t stage = 0; stage < 5; ++stage)
+        for (auto const* ref : *all[stage])
+          for (auto keyword : ref->keywordIndices) universe[stage].insert(keyword);
+      auto sharedByAll = [&](ParsedProgramRef const* ref) {
+        for (auto keyword : ref->keywordIndices)
+          for (auto const& stageKeywords : universe)
+            if (!stageKeywords.contains(keyword)) return false;
+        return true;
+      };
+      std::array<std::vector<ParsedProgramRef const*>, 5> pairable;
+      for (size_t stage = 0; stage < 5; ++stage)
+        for (auto const* ref : *all[stage])
+          if (sharedByAll(ref)) pairable[stage].push_back(ref);
+      auto const& vertices = pairable[0];
+      auto const& fragments = pairable[1];
+      auto const& geometries = pairable[2];
+      auto const& hulls = pairable[3];
+      auto const& domains = pairable[4];
       auto refuse = [&](std::string const& reason) {
         out.tessellationUntranslated = true;
         out.reason = "uniform triangle tessellation refused: " + reason;

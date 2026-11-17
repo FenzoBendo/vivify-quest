@@ -433,7 +433,7 @@ UnityEngine::RenderTexture* SecondaryCameraController::EnsureEyeTexture(
     UnityEngine::Object::Destroy(tex);
   }
   textures.erase(eye); allocations.erase(eye);
-  tex = UnityEngine::RenderTexture::New_ctor(descriptor);
+  tex = ClampWrap(UnityEngine::RenderTexture::New_ctor(descriptor));
   if (!IsManagedAlive(tex)) return nullptr;
   if (!tex->Create()) { UnityEngine::Object::Destroy(tex); return nullptr; }
   textures[eye] = tex;
@@ -639,7 +639,7 @@ void CameraApplier::RenderEffects(UnityEngine::RenderTexture* src, UnityEngine::
       desc.set_depthBufferBits(0);
       struct Temporary {
         SafePtr<UnityEngine::RenderTexture> value;
-        explicit Temporary(UnityEngine::RenderTextureDescriptor descriptor) : value(UnityEngine::RenderTexture::GetTemporary(descriptor).unsafePtr()) {}
+        explicit Temporary(UnityEngine::RenderTextureDescriptor descriptor) : value(ClampWrap(UnityEngine::RenderTexture::GetTemporary(descriptor).unsafePtr())) {}
         ~Temporary() { if (value && IsManagedAlive(value.ptr())) UnityEngine::RenderTexture::ReleaseTemporary(value.ptr()); }
         UnityEngine::RenderTexture* unsafePtr() const { return value ? value.ptr() : nullptr; }
       };
