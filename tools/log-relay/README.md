@@ -22,7 +22,7 @@ Expressive-inspired interface. It includes:
 - Automatic refresh every 15 seconds.
 
 The dashboard API exposes:
-- `GET /api/health` for relay status and aggregate counts.
+- `GET /api/health` for relay status, aggregate counts, and SHA3 deduplication savings.
 - `GET /api/logs` to list uploads, with optional `?date=YYYY-MM-DD` and
   `?upload=<upload-id>` filters.
 - `GET /api/log?path=<encoded-repository-path>` to read one log as plain text.
