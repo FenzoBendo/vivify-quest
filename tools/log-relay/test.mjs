@@ -79,12 +79,12 @@ check("log listing rejects malformed date filters", (await worker.fetch(new Requ
 check("dashboard rejects paths outside the log allowlist", (await worker.fetch(new Request("https://relay/api/log?path=" + encodeURIComponent("../secrets.txt")), env)).status === 400);
 let beforeDuplicate = refSha;
 r = await post({ ...good, upload: "1123456789abcdef" });
-check("identical files are deduplicated and savings are persisted", r.status === 200 && (await r.text()).includes("deduplicated 2 file(s)") && refSha !== beforeDuplicate);
+check("identical files are deduplicated and savings are persisted", r.status === 200 && (await r.text()).includes("shared 2 duplicate line(s)") && refSha !== beforeDuplicate);
 beforeDuplicate = refSha;
 const afterDedupe = await (await worker.fetch(new Request("https://relay/api/logs"), env)).json();
 check("dashboard API reports cumulative SHA3 storage savings", afterDedupe.dedupeSavedBytes === 8 && afterDedupe.dedupeSavedFiles === 2);
 r = await post({ ...good, upload: "2123456789abcdef", files: [{ name: "VivifyReport.txt", text: "hello" }, { name: "VivifyCrash.txt", text: "new crash detail" }] });
-check("mixed uploads store only files with new content", r.status === 200 && (await r.text()).includes("stored 1, deduplicated 1") && commits[refSha].parents[0] === beforeDuplicate);
+check("mixed uploads store only files with new content", r.status === 200 && (await r.text()).includes("shared 1 duplicate line(s)") && commits[refSha].parents[0] === beforeDuplicate);
 const beforeWithinBatch = refSha;
 r = await post({ ...good, upload: "3123456789abcdef", files: [{ name: "VivifyReport.txt", text: "same in request" }, { name: "VivifyCrash.txt", text: "same in request" }] });
 check("duplicates inside one request are stored only once", r.status === 200 && (await r.text()).includes("stored 1, deduplicated 1") && commits[refSha].parents[0] === beforeWithinBatch);
