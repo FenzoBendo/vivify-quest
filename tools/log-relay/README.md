@@ -1,8 +1,12 @@
 # Vivify log relay
 
-The relay receives the mod's diagnostic uploads and stores them on the
+The relay receives the mod's diagnostic uploads and stores unique log contents on the
 repository's `LOGS` branch. It also hosts a responsive dashboard for browsing
-those uploads.
+those uploads. Before committing, it hashes each file using Git's blob SHA-1 format and
+skips content already present on the active branch, including duplicates within one
+request. Mixed uploads store only their new files; fully duplicate uploads create no
+commit. This reduces duplicate paths, trees, and commits while retaining Git's native
+content-addressed blob reuse.
 
 ## Dashboard
 
@@ -71,7 +75,8 @@ dashboard with hot reload.
 
 ## Test
 
-Run `node test.mjs` to test upload validation, log downloads, listing filters,
+Run `node test.mjs` to test upload validation, content deduplication (existing files,
+within-request duplicates, and mixed uploads), log downloads, listing filters,
 scheduled retention, and GitHub branch commits against a fake GitHub API.
 Run `npm run build` to type-check and build the dashboard.
 
