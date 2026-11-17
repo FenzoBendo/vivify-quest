@@ -276,7 +276,8 @@ async function pruneLogsWhenOversized(env, now = Date.now()) {
     if (treeResult.data.truncated) throw new Error("size cleanup aborted: GitHub returned a truncated logs tree");
     const items = treeResult.data.tree || [];
     const logs = items.filter(item => item.type === "blob" && item.path.startsWith("logs/"));
-    const bytesBefore = logs.reduce((sum, item) => sum + (Number(item.size) || 0), 0);
+    const sharedLines = items.filter(item => item.type === "blob" && item.path.startsWith(LINE_PREFIX));
+    const bytesBefore = [...logs, ...sharedLines].reduce((sum, item) => sum + (Number(item.size) || 0), 0);
     if (bytesBefore <= limit) return { triggered: false, deletedFiles: 0, bytesBefore };
     const cutoff = now - RECENT_LOG_WINDOW_MS;
     const candidates = logs.filter(item => {
