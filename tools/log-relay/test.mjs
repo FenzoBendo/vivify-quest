@@ -125,5 +125,6 @@ check("no token refused", (await worker.fetch(new Request("https://relay/api/upl
   const afterCleanup = await (await worker.fetch(new Request("https://relay/api/logs"), env)).json();
   check("storage-pressure cleanup removes logs older than two hours", !afterCleanup.uploads.some(item => item.id.includes("old_upload")));
   check("storage-pressure cleanup preserves all uploads from the last two hours", afterCleanup.uploads.length > 0 && afterCleanup.uploads.every(item => Date.now() - Date.parse(item.date + "T" + item.id.slice(0,6).replace(/(\d{2})(\d{2})(\d{2})/, "$1:$2:$3") + "Z") <= 2 * 60 * 60 * 1000));
+  check("storage-pressure cleanup compacts old LOGS branch history", commits[refSha].parents.length === 0);
 }
 console.log(fails + " failure(s)"); process.exit(fails ? 1 : 0);
