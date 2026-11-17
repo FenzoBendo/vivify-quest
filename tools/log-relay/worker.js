@@ -101,91 +101,97 @@ function uploadTimestamp(path) {
   return match ? Date.parse(match[1] + "T" + match[2] + ":" + match[3] + ":" + match[4] + "Z") : NaN;
 }
 
-// One commit holding only new, content-unique blobs on the branch. Re-check
-// after every branch race so concurrent identical uploads cannot both commit.
+// Each log file is a manifest of ordered, content-addressed lines.
+// The same exact UTF-8 line is represented by one Git blob across all logs.
+const LINE_PREFIX = ".vivify-lines/";
+const LINE_MANIFEST = "vivify-line-manifest";
+function splitLogLines(text) { return text.match(/[^\n]*\n|[^\n]+$/g) || []; }
+function parseLineManifest(text) {
+  try { const x = JSON.parse(text); return x?.format === LINE_MANIFEST && x.version === 1 && Array.isArray(x.lines) ? x : null; }
+  catch { return null; }
+}
+async function readManifestText(env, manifest) {
+  const parts = [];
+  for (const line of manifest.lines) {
+    const blob = await github(env, "GET", "/git/blobs/" + line.sha);
+    if (blob.status !== 200 || typeof blob.data.content !== "string") throw new Error("shared log line unavailable");
+    parts.push(decodeBase64Text(blob.data.content));
+  }
+  return parts.join("");
+}
 async function commit(env, entries, message) {
   const branch = env.BRANCH || "LOGS";
   for (let attempt = 0; attempt < 4; attempt++) {
-    const ref = await github(env, "GET", `/git/ref/heads/${branch}`);
-    let parent = null;
-    let baseTree = undefined;
-    let hashIndex = {};
-    let lastSeen = {};
-    let dedupeStats = { savedBytes: 0, savedFiles: 0 };
-    let indexNeedsWrite = false;
+    const ref = await github(env, "GET", "/git/ref/heads/" + branch);
+    let parent = null, baseTree, items = [];
+    let stats = { savedBytes: 0, savedFiles: 0, savedLines: 0 };
     if (ref.status === 200) {
       parent = ref.data.object.sha;
-      const parentCommit = await github(env, "GET", `/git/commits/${parent}`);
-      if (parentCommit.status !== 200) throw new Error(`reading the branch head: ${parentCommit.status}`);
-      baseTree = parentCommit.data.tree.sha;
-      const currentTree = await github(env, "GET", `/git/trees/${baseTree}?recursive=1`);
-      if (currentTree.status !== 200) throw githubFailure("reading existing log blobs for deduplication", currentTree);
-      if (currentTree.data.truncated) throw new Error("deduplication aborted: GitHub returned a truncated logs tree");
-      const items = currentTree.data.tree || [];
-      const indexItem = items.find(item => item.path === DEDUPE_INDEX_PATH && item.type === "blob");
-      if (indexItem) {
-        const result = await github(env, "GET", `/git/blobs/${indexItem.sha}`);
-        if (result.status !== 200 || typeof result.data.content !== "string") throw new Error("reading SHA3 index failed");
-        const raw = atob(result.data.content.replace(/\n/g, ""));
-        const parsed = JSON.parse(new TextDecoder().decode(Uint8Array.from(raw, ch => ch.charCodeAt(0))));
-        if (parsed.version !== 1 || !parsed.hashes || typeof parsed.hashes !== "object") throw new Error("invalid SHA3 index format");
-        hashIndex = parsed.hashes;
-        lastSeen = parsed.lastSeen && typeof parsed.lastSeen === "object" ? parsed.lastSeen : {};
-        dedupeStats = { savedBytes: Number(parsed.stats?.savedBytes) || 0, savedFiles: Number(parsed.stats?.savedFiles) || 0 };
-      } else {
-        indexNeedsWrite = true;
-        // Backfill existing logs once when upgrading from the SHA-1 deduper.
-        for (const item of items) {
-          if (item.type !== "blob" || !item.path.startsWith("logs/")) continue;
-          const blob = await github(env, "GET", `/git/blobs/${item.sha}`);
-          if (blob.status !== 200 || typeof blob.data.content !== "string") throw new Error(`SHA3 migration failed for ${item.path}`);
-          const raw = atob(blob.data.content.replace(/\n/g, ""));
-          const hash = sha3Hex(Uint8Array.from(raw, ch => ch.charCodeAt(0)));
-          hashIndex[hash] = item.path;
-          lastSeen[hash] = uploadTimestamp(item.path) || 0;
+      const pc = await github(env, "GET", "/git/commits/" + parent);
+      if (pc.status !== 200) throw githubFailure("reading branch head", pc);
+      baseTree = pc.data.tree.sha;
+      const tr = await github(env, "GET", "/git/trees/" + baseTree + "?recursive=1");
+      if (tr.status !== 200) throw githubFailure("reading logs for line dedupe", tr);
+      if (tr.data.truncated) throw new Error("line dedupe aborted: truncated Git tree");
+      items = tr.data.tree || [];
+      const ix = items.find(x => x.path === DEDUPE_INDEX_PATH && x.type === "blob");
+      if (ix) {
+        const ib = await github(env, "GET", "/git/blobs/" + ix.sha);
+        if (ib.status !== 200 || typeof ib.data.content !== "string") throw new Error("reading line dedupe metrics failed");
+        const parsed = JSON.parse(decodeBase64Text(ib.data.content));
+        stats = { savedBytes: Number(parsed.stats?.savedBytes) || 0, savedFiles: Number(parsed.stats?.savedFiles) || 0, savedLines: Number(parsed.stats?.savedLines) || 0 };
+      }
+    } else if (ref.status !== 404) throw githubFailure("reading branch", ref);
+
+    const changes = new Map(), known = new Set(items.map(x => x.path));
+    let savedBytes = 0, savedLines = 0, savedFiles = 0;
+    // Migrate older whole-file blobs once, without changing their public paths.
+    for (const item of items.filter(x => x.type === "blob" && x.path.startsWith("logs/"))) {
+      const blob = await github(env, "GET", "/git/blobs/" + item.sha);
+      if (blob.status !== 200 || typeof blob.data.content !== "string") throw new Error("migrating old log failed: " + item.path);
+      const oldText = decodeBase64Text(blob.data.content);
+      if (parseLineManifest(oldText)) continue;
+      const refs = [];
+      for (const line of splitLogLines(oldText)) {
+        const bytes = new TextEncoder().encode(line), hash = sha3Hex(bytes), path = LINE_PREFIX + hash;
+        refs.push({ sha: hash, bytes: bytes.length });
+        if (!known.has(path) && !changes.has(path)) {
+          changes.set(path, { path, mode: "100644", type: "blob", content: line });
+          known.add(path);
         }
       }
-    } else if (ref.status !== 404) throw githubFailure("reading the branch", ref);
-    const uniqueEntries = [], incoming = new Set();
-    let savedThisUpload = 0;
-    let savedFilesThisUpload = 0;
-    for (const entry of entries) {
-      const hash = await contentSha3(entry.text);
-      const size = new TextEncoder().encode(entry.text).byteLength;
-      lastSeen[hash] = Date.now();
-      if (hashIndex[hash] || incoming.has(hash)) {
-        savedThisUpload += size;
-        savedFilesThisUpload++;
-        continue;
-      }
-      incoming.add(hash); hashIndex[hash] = entry.path; uniqueEntries.push(entry);
+      changes.set(item.path, { path: item.path, mode: "100644", type: "blob", content: JSON.stringify({ format: LINE_MANIFEST, version: 1, lines: refs }) });
     }
-    const deduplicated = entries.length - uniqueEntries.length;
-    dedupeStats.savedBytes += savedThisUpload;
-    dedupeStats.savedFiles += savedFilesThisUpload;
-    if (savedFilesThisUpload) indexNeedsWrite = true;
-    if (!uniqueEntries.length && !indexNeedsWrite) return { sha: null, stored: 0, deduplicated, savedBytes: dedupeStats.savedBytes };
-    const indexText = JSON.stringify({ version: 1, algorithm: "sha3-256", stats: dedupeStats, hashes: hashIndex, lastSeen });
-    const tree = await github(env, "POST", "/git/trees", {
-      ...(baseTree ? { base_tree: baseTree } : {}),
-      tree: [...uniqueEntries.map(entry => ({ path: entry.path, mode: "100644", type: "blob", content: entry.text })),
-        { path: DEDUPE_INDEX_PATH, mode: "100644", type: "blob", content: indexText }],
-    });
-    if (tree.status !== 201) throw new Error(`writing the files: ${tree.status}`);
-    const made = await github(env, "POST", "/git/commits", {
-      message,
-      tree: tree.data.sha,
-      parents: parent ? [parent] : [],
-    });
-    if (made.status !== 201) throw new Error(`making the commit: ${made.status}`);
+    let duplicateFiles = 0;
+    for (const entry of entries) {
+      const refs = [];
+      let duplicate = false;
+      for (const line of splitLogLines(entry.text)) {
+        const bytes = new TextEncoder().encode(line), hash = sha3Hex(bytes), path = LINE_PREFIX + hash;
+        refs.push({ sha: hash, bytes: bytes.length });
+        if (known.has(path) || changes.has(path)) {
+          savedBytes += bytes.length; savedLines++; duplicate = true;
+        } else {
+          changes.set(path, { path, mode: "100644", type: "blob", content: line });
+          known.add(path);
+        }
+      }
+      if (duplicate) { duplicateFiles++; savedFiles++; }
+      changes.set(entry.path, { path: entry.path, mode: "100644", type: "blob", content: JSON.stringify({ format: LINE_MANIFEST, version: 1, lines: refs }) });
+    }
+    stats.savedBytes += savedBytes; stats.savedLines += savedLines; stats.savedFiles += savedFiles;
+    changes.set(DEDUPE_INDEX_PATH, { path: DEDUPE_INDEX_PATH, mode: "100644", type: "blob", content: JSON.stringify({ version: 2, algorithm: "sha3-256-lines", stats }) });
+    const tree = await github(env, "POST", "/git/trees", { ...(baseTree ? { base_tree: baseTree } : {}), tree: [...changes.values()] });
+    if (tree.status !== 201) throw githubFailure("writing shared log lines", tree);
+    const made = await github(env, "POST", "/git/commits", { message, tree: tree.data.sha, parents: parent ? [parent] : [] });
+    if (made.status !== 201) throw githubFailure("making log commit", made);
     const moved = parent
-      ? await github(env, "PATCH", `/git/refs/heads/${branch}`, { sha: made.data.sha, force: false })
-      : await github(env, "POST", "/git/refs", { ref: `refs/heads/${branch}`, sha: made.data.sha });
-    if (moved.status === 200 || moved.status === 201) return { sha: made.data.sha, stored: uniqueEntries.length, deduplicated, savedBytes: dedupeStats.savedBytes };
-    // Another upload moved the branch first: build on top of it and try again.
-    if (moved.status !== 422) throw new Error(`moving the branch: ${moved.status}`);
+      ? await github(env, "PATCH", "/git/refs/heads/" + branch, { sha: made.data.sha, force: false })
+      : await github(env, "POST", "/git/refs", { ref: "refs/heads/" + branch, sha: made.data.sha });
+    if (moved.status === 200 || moved.status === 201) return { sha: made.data.sha, stored: entries.length, deduplicated: duplicateFiles, deduplicatedLines: savedLines, savedBytes: stats.savedBytes };
+    if (moved.status !== 422) throw githubFailure("moving logs branch", moved);
   }
-  throw new Error("the branch kept moving; giving up");
+  throw new Error("logs branch kept moving; giving up");
 }
 
 async function readLogs(env) {
@@ -277,13 +283,11 @@ async function pruneLogsWhenOversized(env, now = Date.now()) {
     const tree = await github(env, "POST", "/git/trees", { base_tree: commitResult.data.tree.sha, tree: changes });
     if (tree.status !== 201) throw githubFailure("building size-cleanup tree", tree);
     const made = await github(env, "POST", "/git/commits", {
-      message: `Automatic storage cleanup: remove ${expired.length} log file(s), preserve two hours, compact history`,
-      // Start a fresh root commit so deleted log blobs are no longer reachable
-      // through the LOGS branch's prior upload history.
-      tree: tree.data.sha, parents: [],
+      message: `Automatic storage cleanup: remove ${expired.length} old log file(s), preserve two hours`,
+      tree: tree.data.sha, parents: [headSha],
     });
     if (made.status !== 201) throw githubFailure("committing size cleanup", made);
-    const moved = await github(env, "PATCH", "/git/refs/heads/" + branch, { sha: made.data.sha, force: true });
+    const moved = await github(env, "PATCH", "/git/refs/heads/" + branch, { sha: made.data.sha, force: false });
     if (moved.status === 200) {
       await invalidateLogIndexCache(env);
       return { triggered: true, deletedFiles: expired.length, bytesBefore, protectedRecentBytes: logs.filter(item => !expiredPaths.has(item.path)).reduce((sum, item) => sum + (Number(item.size) || 0), 0) };
@@ -374,7 +378,7 @@ export default {
       try {
         const data = await readLogsCached(env);
         // writeReady indicates that the upload secret is configured.
-        return json(200, { ok: true, writeReady: Boolean(env.GITHUB_TOKEN), uploadCount: data.uploads.length, fileCount: data.uploads.reduce((n, u) => n + u.files.length, 0), totalBytes: data.totalBytes, dedupeSavedBytes: data.dedupeSavedBytes, dedupeSavedFiles: data.dedupeSavedFiles, updatedAt: new Date().toISOString() });
+        return json(200, { ok: true, writeReady: Boolean(env.GITHUB_TOKEN), uploadCount: data.uploads.length, fileCount: data.uploads.reduce((n, u) => n + u.files.length, 0), totalBytes: data.totalBytes, dedupeSavedBytes: data.dedupeSavedBytes, dedupeSavedFiles: data.dedupeSavedFiles, dedupeSavedLines: data.dedupeSavedLines, updatedAt: new Date().toISOString() });
       } catch (error) { return json(502, { error: error.message }); }
     }
     if (request.method === "GET" && url.pathname === "/api/logs") {
@@ -398,8 +402,10 @@ export default {
         // content for files larger than 1 MB, while Vivify permits larger logs.
         const blob = await github(env, "GET", `/git/blobs/${file.sha}`);
         if (blob.status !== 200 || typeof blob.data.content !== "string") return json(502, { error: "Log file unavailable" });
-        const content = atob(blob.data.content.replace(/\n/g, ""));
-        const bytes = Uint8Array.from(content, (c) => c.charCodeAt(0));
+        const storedText = decodeBase64Text(blob.data.content);
+        const manifest = parseLineManifest(storedText);
+        const outputText = manifest ? await readManifestText(env, manifest) : storedText;
+        const bytes = new TextEncoder().encode(outputText);
         const filename = path.split("/").pop();
         const headers = { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
         if (url.searchParams.get("download") === "1") headers["Content-Disposition"] = `attachment; filename="${filename}"`;
@@ -446,8 +452,8 @@ export default {
           return null;
         });
         return reply(200, result.stored === 0
-          ? `deduplicated ${result.deduplicated} file(s); ${result.savedBytes || 0} bytes saved cumulatively`
-          : `${folder} ${result.sha.slice(0, 7)}; stored ${result.stored}, deduplicated ${result.deduplicated}; ${result.savedBytes || 0} bytes saved cumulatively${cleanup?.deletedFiles ? `; cleaned ${cleanup.deletedFiles} old file(s)` : ""}`);
+          ? `stored ${result.stored} file(s); shared ${result.deduplicatedLines || 0} duplicate line(s); ${result.savedBytes || 0} bytes saved cumulatively`
+          : `${folder} ${result.sha.slice(0, 7)}; stored ${result.stored} file(s); shared ${result.deduplicatedLines || 0} duplicate line(s); ${result.savedBytes || 0} bytes saved cumulatively${cleanup?.deletedFiles ? `; cleaned ${cleanup.deletedFiles} old file(s)` : ""}`);
       } catch (error) { return reply(502, `could not commit: ${error.message}`); }
     }
     if (request.method === "GET" && env.ASSETS) return env.ASSETS.fetch(request);
