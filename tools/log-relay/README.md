@@ -7,16 +7,17 @@ present on the active branch, including duplicates within one request. A compact
 `.vivify-sha3-index.json` is stored on the branch so normal uploads do not need to
 re-download every historical log. The first upload after upgrading backfills the index
 from existing logs. Mixed uploads store only their new files; fully duplicate uploads
-create no commit. The 30-day retention task also removes expired entries from the index.
+create no commit. The 30-day retention task also removes expired entries from the index. The index also tracks cumulative duplicate bytes/files avoided and the last-seen time for each canonical blob, so recent duplicate uploads remain protected during emergency cleanup.
 
-## Dashboard
+## Dashboard (1.1.0)
 
 The dashboard is a Vite + TypeScript application with a hand-built Material 3
 Expressive-inspired interface. It includes:
 
 - A live upload counter and summary of received files and stored data.
+- Cumulative storage avoided by SHA3 deduplication, with duplicate-file counts.
 - A 14-day upload traffic graph.
-- A newest-first upload list with search and per-upload file details.
+- A searchable upload list with newest-first, largest-first, and smallest-first sorting by total upload size.
 - An in-browser plain-text log viewer.
 - A responsive layout designed for desktop and phone screens.
 - Automatic refresh every 15 seconds.
@@ -79,7 +80,7 @@ dashboard with hot reload.
 Run `node test.mjs` to test upload validation, content deduplication (existing files,
 within-request duplicates, and mixed uploads), log downloads, listing filters,
 scheduled retention, and GitHub branch commits against a fake GitHub API.
-Run `npm run build` to type-check and build the dashboard.
+Run `npm run build` to type-check and build the dashboard. Wrangler CLI is pinned to 4.163.0; use `npm run deploy` to build and deploy with the project-local CLI.
 
 ## Troubleshooting
 
