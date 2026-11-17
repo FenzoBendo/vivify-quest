@@ -204,7 +204,7 @@ async function commit(env, entries, message) {
 async function readLogs(env) {
   const branch = env.BRANCH || "LOGS";
   const ref = await github(env, "GET", `/git/ref/heads/${branch}`);
-  if (ref.status === 404) return { uploads: [], days: [], totalBytes: 0, dedupeSavedBytes: 0, dedupeSavedFiles: 0 };
+  if (ref.status === 404) return { uploads: [], days: [], totalBytes: 0, dedupeSavedBytes: 0, dedupeSavedFiles: 0, dedupeSavedLines: 0 };
   if (ref.status !== 200) throw githubFailure("reading the logs branch", ref);
   const commitResult = await github(env, "GET", `/git/commits/${ref.data.object.sha}`);
   if (commitResult.status !== 200) throw githubFailure("reading the logs commit", commitResult);
