@@ -88,7 +88,7 @@ const MASK64=(1n<<64n)-1n;
 const ROT=[0,1,62,28,27,36,44,6,55,20,3,10,43,25,39,41,45,15,21,8,18,2,61,56,14];
 const RC=[1n,0x8082n,0x800000000000808an,0x8000000080008000n,0x808bn,0x80000001n,0x8000000080008081n,0x8000000000008009n,0x8an,0x88n,0x80008009n,0x8000000an,0x8000808bn,0x800000000000008bn,0x8000000000008089n,0x8000000000008003n,0x8000000000008002n,0x8000000000000080n,0x800an,0x800000008000000an,0x8000000080008081n,0x8000000000008080n,0x80000001n,0x8000000080008008n];
 function rot64(v,n){if(!n)return v;const s=BigInt(n);return((v<<s)|(v>>(64n-s)))&MASK64;}
-function sha3_256(input){const rate=136,size=Math.ceil((input.length+1)/rate)*rate,data=new Uint8Array(size);data.set(input);data[input.length]^=6;data[size-1]^=128;const st=new Array(25).fill(0n);for(let off=0;off<size;off+=rate){for(let i=0;i<rate;i++)st[i>>3]^=BigInt(data[off+i])<<BigInt((i&7)*8);for(const rc of RC){const c=new Array(5),d=new Array(5);for(let x=0;x<5;x++)c[x]=st[x]^st[x+5]^st[x+10]^st[x+15]^st[x+20];for(let x=0;x<5;x++)d[x]=c[(x+4)%5]^rot64(c[(x+1)%5],1);for(let y=0;y<5;y++)for(let x=0;x<5;x++)st[x+5*y]^=d[x];const q=new Array(25).fill(0n);for(let y=0;y<5;y++)for(let x=0;x<5;x++){const i=x+5*y;q[y+5*((2*x+3*y)%5)]=rot64(st[i],ROT[i]);}for(let y=0;y<5;y++)for(let x=0;x<5;x++)st[x+5*y]=q[x+5*y]^((~q[(x+1)%5+5*y])&q[(x+2)%5+5*y]);st[0]^=rc;}}const out=new Uint8Array(32);for(let i=0;i<32;i++)out[i]=Number((st[i>>3]>>BigInt((i&7)*8))&255n);return[...out].map(v=>v.toString(16).padStart(2,"0")).join("");}
+export function sha3_256(input){const rate=136,size=Math.ceil((input.length+1)/rate)*rate,data=new Uint8Array(size);data.set(input);data[input.length]^=6;data[size-1]^=128;const st=new Array(25).fill(0n);for(let off=0;off<size;off+=rate){for(let i=0;i<rate;i++)st[i>>3]^=BigInt(data[off+i])<<BigInt((i&7)*8);for(const rc of RC){const c=new Array(5),d=new Array(5);for(let x=0;x<5;x++)c[x]=st[x]^st[x+5]^st[x+10]^st[x+15]^st[x+20];for(let x=0;x<5;x++)d[x]=c[(x+4)%5]^rot64(c[(x+1)%5],1);for(let y=0;y<5;y++)for(let x=0;x<5;x++)st[x+5*y]^=d[x];const q=new Array(25).fill(0n);for(let y=0;y<5;y++)for(let x=0;x<5;x++){const i=x+5*y;q[y+5*((2*x+3*y)%5)]=rot64(st[i],ROT[i]);}for(let y=0;y<5;y++)for(let x=0;x<5;x++)st[x+5*y]=q[x+5*y]^((~q[(x+1)%5+5*y])&q[(x+2)%5+5*y]);st[0]^=rc;}}const out=new Uint8Array(32);for(let i=0;i<32;i++)out[i]=Number((st[i>>3]>>BigInt((i&7)*8))&255n);return[...out].map(v=>v.toString(16).padStart(2,"0")).join("");}
 const DEDUPE_INDEX_PATH=".vivify-sha3-index.json";
 async function contentSha3(text){return sha3_256(new TextEncoder().encode(text));}
 
@@ -213,9 +213,20 @@ async function pruneExpiredLogs(env, now = Date.now()) {
     });
     if (!expired.length) return { deletedFiles: 0, deletedUploads: 0 };
     const folders = new Set(expired.map(item => item.path.split("/").slice(0, 3).join("/")));
+    const expiredPaths = new Set(expired.map(item => item.path));
+    const indexItem = (treeResult.data.tree || []).find(item => item.path === DEDUPE_INDEX_PATH && item.type === "blob");
+    const changes = expired.map(item => ({ path: item.path, sha: null }));
+    if (indexItem) {
+      const indexBlob = await github(env, "GET", `/git/blobs/${indexItem.sha}`);
+      if (indexBlob.status !== 200 || typeof indexBlob.data.content !== "string") throw new Error("reading SHA3 index during retention failed");
+      const raw = atob(indexBlob.data.content.replace(/\\n/g, ""));
+      const index = JSON.parse(new TextDecoder().decode(Uint8Array.from(raw, ch => ch.charCodeAt(0))));
+      for (const [hash, storedPath] of Object.entries(index.hashes || {})) if (expiredPaths.has(storedPath)) delete index.hashes[hash];
+      changes.push({ path: DEDUPE_INDEX_PATH, mode: "100644", type: "blob", content: JSON.stringify(index) });
+    }
     const tree = await github(env, "POST", "/git/trees", {
       base_tree: commitResult.data.tree.sha,
-      tree: expired.map(item => ({ path: item.path, sha: null })),
+      tree: changes,
     });
     if (tree.status !== 201) throw githubFailure("building the retention tree", tree);
     const made = await github(env, "POST", "/git/commits", {
