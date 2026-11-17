@@ -2,11 +2,12 @@
 
 The relay receives the mod's diagnostic uploads and stores unique log contents on the
 repository's `LOGS` branch. It also hosts a responsive dashboard for browsing
-those uploads. Before committing, it hashes each file using Git's blob SHA-1 format and
-skips content already present on the active branch, including duplicates within one
-request. Mixed uploads store only their new files; fully duplicate uploads create no
-commit. This reduces duplicate paths, trees, and commits while retaining Git's native
-content-addressed blob reuse.
+those uploads. Before committing, it hashes each file with SHA3-256 and skips content already
+present on the active branch, including duplicates within one request. A compact
+`.vivify-sha3-index.json` is stored on the branch so normal uploads do not need to
+re-download every historical log. The first upload after upgrading backfills the index
+from existing logs. Mixed uploads store only their new files; fully duplicate uploads
+create no commit. The 30-day retention task also removes expired entries from the index.
 
 ## Dashboard
 
