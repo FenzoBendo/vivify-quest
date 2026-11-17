@@ -222,8 +222,14 @@ async function readLogs(env) {
     const [folder, file] = [match[1], match[2]];
     if (!groups.has(folder)) groups.set(folder, { id: folder.split("/").pop(), date: folder.split("/")[1], path: folder, files: [], bytes: 0 });
     const group = groups.get(folder);
-    group.files.push({ name: file, path: item.path, size: item.size || 0, sha: item.sha });
-    group.bytes += item.size || 0;
+    let logicalSize = item.size || 0;
+    const stored = await github(env, "GET", "/git/blobs/" + item.sha);
+    if (stored.status === 200 && typeof stored.data.content === "string") {
+      const manifest = parseLineManifest(decodeBase64Text(stored.data.content));
+      if (manifest) logicalSize = manifest.lines.reduce((sum, line) => sum + (Number(line.bytes) || 0), 0);
+    }
+    group.files.push({ name: file, path: item.path, size: logicalSize, sha: item.sha });
+    group.bytes += logicalSize;
   }
   const uploads = [...groups.values()].sort((a, b) => b.path.localeCompare(a.path));
   const daysMap = new Map();
@@ -234,6 +240,19 @@ async function readLogs(env) {
   return { uploads, days: [...daysMap.values()].sort((a, b) => a.date.localeCompare(b.date)), totalBytes: uploads.reduce((sum, item) => sum + item.bytes, 0), dedupeSavedBytes: dedupeStats.savedBytes, dedupeSavedFiles: dedupeStats.savedFiles };
 }
 
+
+async function orphanedLineBlobChanges(env, items, removedPaths) {
+  const used = new Set();
+  for (const item of items) {
+    if (item.type !== "blob" || !item.path.startsWith("logs/") || removedPaths.has(item.path)) continue;
+    const blob = await github(env, "GET", "/git/blobs/" + item.sha);
+    if (blob.status !== 200 || typeof blob.data.content !== "string") throw new Error("reading log manifest for line cleanup failed");
+    const manifest = parseLineManifest(decodeBase64Text(blob.data.content));
+    if (manifest) for (const line of manifest.lines) used.add(line.sha);
+  }
+  return items.filter(item => item.type === "blob" && item.path.startsWith(LINE_PREFIX) && !used.has(item.path.slice(LINE_PREFIX.length)))
+    .map(item => ({ path: item.path, sha: null }));
+}
 
 async function pruneLogsWhenOversized(env, now = Date.now()) {
   const branch = env.BRANCH || "LOGS";
@@ -274,6 +293,7 @@ async function pruneLogsWhenOversized(env, now = Date.now()) {
     if (!expired.length) return { triggered: true, deletedFiles: 0, bytesBefore, protectedRecentBytes: bytesBefore };
     const expiredPaths = new Set(expired.map(item => item.path));
     const changes = expired.map(item => ({ path: item.path, sha: null }));
+    changes.push(...await orphanedLineBlobChanges(env, items, expiredPaths));
     if (index) {
       for (const [hash, storedPath] of Object.entries(index.hashes || {})) {
         if (expiredPaths.has(storedPath)) { delete index.hashes[hash]; delete index.lastSeen?.[hash]; }
@@ -334,6 +354,7 @@ async function pruneExpiredLogs(env, now = Date.now()) {
     const folders = new Set(expired.map(item => item.path.split("/").slice(0, 3).join("/")));
     const expiredPaths = new Set(expired.map(item => item.path));
     const changes = expired.map(item => ({ path: item.path, sha: null }));
+    changes.push(...await orphanedLineBlobChanges(env, treeResult.data.tree || [], expiredPaths));
     if (index) {
       for (const [hash, storedPath] of Object.entries(index.hashes || {})) {
         if (expiredPaths.has(storedPath)) { delete index.hashes[hash]; delete index.lastSeen?.[hash]; }
