@@ -13,7 +13,7 @@ globalThis.fetch = async (url, init) => {
   if (init.method === "GET" && path.startsWith("/git/trees/")) {
     const sha = path.split("/").pop().split("?")[0];
     const tree = (trees[sha]?.tree || []).map((entry, i) => {
-      const blobSha = createHash("sha1").update(`blob ${Buffer.byteLength(entry.content)}\\0`).update(entry.content).digest("hex");
+      const blobSha = createHash("sha1").update(`blob ${Buffer.byteLength(entry.content)}\0`).update(entry.content).digest("hex");
       blobs[blobSha] = entry.content;
       return { path: entry.path, type: "blob", size: entry.content.length, sha: blobSha };
     });
