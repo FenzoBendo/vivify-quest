@@ -306,9 +306,20 @@ async function pruneExpiredLogs(env, now = Date.now()) {
     const treeResult = await github(env, "GET", "/git/trees/" + commitResult.data.tree.sha + "?recursive=1");
     if (treeResult.status !== 200) throw githubFailure("reading the logs tree for retention", treeResult);
     if (treeResult.data.truncated) throw new Error("retention aborted: GitHub returned a truncated logs tree");
+    const indexItem = (treeResult.data.tree || []).find(item => item.path === DEDUPE_INDEX_PATH && item.type === "blob");
+    let index = null;
+    const recentlySeenPaths = new Set();
+    if (indexItem) {
+      const indexBlob = await github(env, "GET", `/git/blobs/${indexItem.sha}`);
+      if (indexBlob.status !== 200 || typeof indexBlob.data.content !== "string") throw new Error("reading SHA3 index during retention failed");
+      index = JSON.parse(decodeBase64Text(indexBlob.data.content));
+      for (const [hash, storedPath] of Object.entries(index.hashes || {})) {
+        if (Number(index.lastSeen?.[hash]) >= now - RECENT_LOG_WINDOW_MS) recentlySeenPaths.add(storedPath);
+      }
+    }
     const expired = (treeResult.data.tree || []).filter(item => {
       const match = item.path.match(/^logs\/(\d{4}-\d{2}-\d{2})\/([^/]+)\/[^/]+$/);
-      if (!match) return false;
+      if (!match || recentlySeenPaths.has(item.path)) return false;
       const time = match[2].match(/^(\d{2})(\d{2})(\d{2})_/);
       const timestamp = time
         ? Date.parse(match[1] + "T" + time[1] + ":" + time[2] + ":" + time[3] + "Z")
@@ -318,13 +329,8 @@ async function pruneExpiredLogs(env, now = Date.now()) {
     if (!expired.length) return { deletedFiles: 0, deletedUploads: 0 };
     const folders = new Set(expired.map(item => item.path.split("/").slice(0, 3).join("/")));
     const expiredPaths = new Set(expired.map(item => item.path));
-    const indexItem = (treeResult.data.tree || []).find(item => item.path === DEDUPE_INDEX_PATH && item.type === "blob");
     const changes = expired.map(item => ({ path: item.path, sha: null }));
-    if (indexItem) {
-      const indexBlob = await github(env, "GET", `/git/blobs/${indexItem.sha}`);
-      if (indexBlob.status !== 200 || typeof indexBlob.data.content !== "string") throw new Error("reading SHA3 index during retention failed");
-      const raw = atob(indexBlob.data.content.replace(/\n/g, ""));
-      const index = JSON.parse(new TextDecoder().decode(Uint8Array.from(raw, ch => ch.charCodeAt(0))));
+    if (index) {
       for (const [hash, storedPath] of Object.entries(index.hashes || {})) {
         if (expiredPaths.has(storedPath)) { delete index.hashes[hash]; delete index.lastSeen?.[hash]; }
       }
