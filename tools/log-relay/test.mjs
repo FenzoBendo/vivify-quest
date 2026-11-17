@@ -88,6 +88,20 @@ check("mixed uploads store only files with new content", r.status === 200 && (aw
 const beforeWithinBatch = refSha;
 r = await post({ ...good, upload: "3123456789abcdef", files: [{ name: "VivifyReport.txt", text: "same in request" }, { name: "VivifyCrash.txt", text: "same in request" }] });
 check("duplicates inside one request are stored only once", r.status === 200 && (await r.text()).includes("stored 1, deduplicated 1") && commits[refSha].parents[0] === beforeWithinBatch);
+{
+  const beforeSharedLines = refSha;
+  r = await post({ ...good, upload: "5123456789abcdef", files: [
+    { name: "VivifyReport.txt", text: "common diagnostic line\\nreport-only line\\n" },
+    { name: "VivifyCrash.txt", text: "common diagnostic line\\ncrash-only line\\n" },
+  ] });
+  const sharedReply = await r.text();
+  check("identical lines across different logs share one SHA3 line blob", r.status === 200 && sharedReply.includes("shared 1 duplicate line(s)") && refSha !== beforeSharedLines);
+  const sharedLogs = await (await worker.fetch(new Request("https://relay/api/logs"), env)).json();
+  const sharedFile = sharedLogs.uploads.flatMap(upload => upload.files).find(file => file.path.endsWith("/VivifyReport.txt") && file.path.includes("5123456789abcdef"));
+  const sharedRead = sharedFile && await worker.fetch(new Request("https://relay/api/log?path=" + encodeURIComponent(sharedFile.path)), env);
+  check("manifest-backed log downloads reconstruct the exact original text", sharedRead?.status === 200 && await sharedRead.text() === "common diagnostic line\\nreport-only line\\n");
+  check("line dedupe metrics are exposed by the dashboard API", sharedLogs.dedupeSavedLines >= 1 && sharedLogs.dedupeSavedBytes > 0);
+}
 raceOnce = true;
 r = await post({ ...good, upload: "4123456789abcdef", files: [{ name: "VivifyCrash.txt", text: "race-only unique payload" }] });
 check("a race retries on top of the moved branch", r.status === 200 && commits[refSha].parents[0] === "cX");
@@ -117,6 +131,7 @@ check("no token refused", (await worker.fetch(new Request("https://relay/api/upl
   const old = new Date(Date.now() - 3 * 60 * 60 * 1000);
   const date = old.toISOString().slice(0, 10);
   const time = old.toISOString().slice(11, 19).replace(/:/g, "");
+  const beforeCleanup = refSha;
   const tree = trees[commits[refSha].tree.sha];
   tree.tree.push({ path: `logs/${date}/${time}_old_upload/VivifyReport.txt`, content: "three-hour-old log" });
   let cleanupPromise;
@@ -125,6 +140,6 @@ check("no token refused", (await worker.fetch(new Request("https://relay/api/upl
   const afterCleanup = await (await worker.fetch(new Request("https://relay/api/logs"), env)).json();
   check("storage-pressure cleanup removes logs older than two hours", !afterCleanup.uploads.some(item => item.id.includes("old_upload")));
   check("storage-pressure cleanup preserves all uploads from the last two hours", afterCleanup.uploads.length > 0 && afterCleanup.uploads.every(item => Date.now() - Date.parse(item.date + "T" + item.id.slice(0,6).replace(/(\d{2})(\d{2})(\d{2})/, "$1:$2:$3") + "Z") <= 2 * 60 * 60 * 1000));
-  check("storage-pressure cleanup compacts old LOGS branch history", commits[refSha].parents.length === 0);
+  check("storage-pressure cleanup preserves LOGS branch history without a forced rewrite", commits[refSha].parents[0] === beforeCleanup);
 }
 console.log(fails + " failure(s)"); process.exit(fails ? 1 : 0);
