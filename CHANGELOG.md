@@ -18,12 +18,18 @@ conversion cache version, and cached conversions are redone automatically.
   Fully duplicate uploads create no commit; mixed uploads store only new files.
 
 ### Fixed
-- Log relay: logs stored as shared lines could not be opened or downloaded.
-  Each line reference held the line's SHA3 hash where the reader expects the
-  Git blob id, so every read failed with "shared log line unavailable". New
-  references carry both. Two relay tests were also wrong: one checked for
-  the old whole-file reply wording, and one wrote literal "\\n" instead of
-  line breaks, so its two logs had no line in common.
+- Log relay: back to deduplicating whole identical files. The line-level
+  deduplication stored every distinct log line as its own file on `LOGS`.
+  Three ordinary uploads already hold about 18,800 distinct lines, and GitHub
+  stops listing a tree in full at 100,000 entries, after which every upload
+  was refused. The first upload would also have converted all 534 stored
+  logs, and opening an 11,000-line log took one GitHub request per line,
+  both well past a Worker's request limit. Storage cleanup stays append-only
+  (no forced history rewrite).
+- Log relay: the SHA3 index no longer backfills existing logs on the first
+  upload, which also took one request per stored log. Logs stored before the
+  index existed are not deduplicated against; they leave with the 30-day
+  retention.
 
 ## [0.15.30] - 2026-11-17
 
