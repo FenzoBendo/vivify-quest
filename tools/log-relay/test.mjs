@@ -77,9 +77,12 @@ const filtered = await (await worker.fetch(new Request("https://relay/api/logs?u
 check("log listing can filter to one upload", filtered.uploads.length === 1 && filtered.uploads[0].id === index.uploads[0].id);
 check("log listing rejects malformed date filters", (await worker.fetch(new Request("https://relay/api/logs?date=not-a-date"), env)).status === 400);
 check("dashboard rejects paths outside the log allowlist", (await worker.fetch(new Request("https://relay/api/log?path=" + encodeURIComponent("../secrets.txt")), env)).status === 400);
-const beforeDuplicate = refSha;
+let beforeDuplicate = refSha;
 r = await post({ ...good, upload: "1123456789abcdef" });
-check("identical files are deduplicated without a new commit", r.status === 200 && (await r.text()).includes("deduplicated 2 file(s)") && refSha === beforeDuplicate);
+check("identical files are deduplicated and savings are persisted", r.status === 200 && (await r.text()).includes("deduplicated 2 file(s)") && refSha !== beforeDuplicate);
+beforeDuplicate = refSha;
+const afterDedupe = await (await worker.fetch(new Request("https://relay/api/logs"), env)).json();
+check("dashboard API reports cumulative SHA3 storage savings", afterDedupe.dedupeSavedBytes === 8 && afterDedupe.dedupeSavedFiles === 2);
 r = await post({ ...good, upload: "2123456789abcdef", files: [{ name: "VivifyReport.txt", text: "hello" }, { name: "VivifyCrash.txt", text: "new crash detail" }] });
 check("mixed uploads store only files with new content", r.status === 200 && (await r.text()).includes("stored 1, deduplicated 1") && commits[refSha].parents[0] === beforeDuplicate);
 const beforeWithinBatch = refSha;
@@ -109,5 +112,18 @@ check("no token refused", (await worker.fetch(new Request("https://relay/api/upl
   await retentionPromise;
   const afterRetention = await (await worker.fetch(new Request("https://relay/api/logs"), env)).json();
   check("scheduled retention removes logs older than 30 days", !afterRetention.uploads.some(item => item.date === "2000-01-01"));
+}
+{
+  const old = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  const date = old.toISOString().slice(0, 10);
+  const time = old.toISOString().slice(11, 19).replace(/:/g, "");
+  const tree = trees[commits[refSha].tree.sha];
+  tree.tree.push({ path: `logs/${date}/${time}_old_upload/VivifyReport.txt`, content: "three-hour-old log" });
+  let cleanupPromise;
+  await worker.scheduled({}, { ...env, MAX_LOG_STORAGE_BYTES: "1" }, { waitUntil: promise => { cleanupPromise = promise; } });
+  await cleanupPromise;
+  const afterCleanup = await (await worker.fetch(new Request("https://relay/api/logs"), env)).json();
+  check("storage-pressure cleanup removes logs older than two hours", !afterCleanup.uploads.some(item => item.id.includes("old_upload")));
+  check("storage-pressure cleanup preserves all uploads from the last two hours", afterCleanup.uploads.length > 0 && afterCleanup.uploads.every(item => Date.now() - Date.parse(item.date + "T" + item.id.slice(0,6).replace(/(\\d{2})(\\d{2})(\\d{2})/, "$1:$2:$3") + "Z") <= 2 * 60 * 60 * 1000));
 }
 console.log(fails + " failure(s)"); process.exit(fails ? 1 : 0);
