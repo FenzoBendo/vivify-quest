@@ -51,7 +51,7 @@ check("SHA3-256 matches the FIPS 202 abc test vector", sha3_256(new TextEncoder(
 let r = await post(good); let t = await r.text();
 check("first upload creates the orphan branch", r.status === 200 && refSha && commits[refSha].parents.length === 0 && calls.includes("POST /git/refs"));
 const firstTree = trees[commits[refSha].tree.sha];
-check("files land in logs/<date>/<time>_<version>_<id>/", firstTree.tree.every(e => /^logs\/\d{4}-\d\d-\d\d\/\d{6}_0\.15\.20_0123456789abcdef\//.test(e.path)) && !firstTree.base_tree);
+check("files land in logs/<date>/<time>_<version>_<id>/ and persist the SHA3 index", firstTree.tree.filter(e => e.path.startsWith("logs/")).every(e => /^logs\/\d{4}-\d\d-\d\d\/\d{6}_0\.15\.20_0123456789abcdef\//.test(e.path)) && firstTree.tree.some(e => e.path === ".vivify-sha3-index.json") && !firstTree.base_tree);
 const first = refSha;
 r = await worker.fetch(new Request("https://relay/api/logs"), env);
 const index = await r.json();
