@@ -83,17 +83,14 @@ async function invalidateLogIndexCache(env) {
   await caches.default.delete(logIndexCacheKey(env));
 }
 
-// Git stores file contents as content-addressed blobs. Hash the exact UTF-8
-// bytes using Git's blob framing so identical files share one object identity.
-async function gitBlobSha(text) {
-  const bytes = new TextEncoder().encode(text);
-  const header = new TextEncoder().encode(`blob ${bytes.length}\0`);
-  const framed = new Uint8Array(header.length + bytes.length);
-  framed.set(header);
-  framed.set(bytes, header.length);
-  const digest = await crypto.subtle.digest("SHA-1", framed);
-  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
-}
+// SHA3-256 (FIPS 202); Workers Web Crypto currently lacks SHA3.
+const MASK64=(1n<<64n)-1n;
+const ROT=[0,1,62,28,27,36,44,6,55,20,3,10,43,25,39,41,45,15,21,8,18,2,61,56,14];
+const RC=[1n,0x8082n,0x800000000000808an,0x8000000080008000n,0x808bn,0x80000001n,0x8000000080008081n,0x8000000000008009n,0x8an,0x88n,0x80008009n,0x8000000an,0x8000808bn,0x800000000000008bn,0x8000000000008089n,0x8000000000008003n,0x8000000000008002n,0x8000000000000080n,0x800an,0x800000008000000an,0x8000000080008081n,0x8000000000008080n,0x80000001n,0x8000000080008008n];
+function rot64(v,n){if(!n)return v;const s=BigInt(n);return((v<<s)|(v>>(64n-s)))&MASK64;}
+function sha3_256(input){const rate=136,size=Math.ceil((input.length+1)/rate)*rate,data=new Uint8Array(size);data.set(input);data[input.length]^=6;data[size-1]^=128;const st=new Array(25).fill(0n);for(let off=0;off<size;off+=rate){for(let i=0;i<rate;i++)st[i>>3]^=BigInt(data[off+i])<<BigInt((i&7)*8);for(const rc of RC){const c=new Array(5),d=new Array(5);for(let x=0;x<5;x++)c[x]=st[x]^st[x+5]^st[x+10]^st[x+15]^st[x+20];for(let x=0;x<5;x++)d[x]=c[(x+4)%5]^rot64(c[(x+1)%5],1);for(let y=0;y<5;y++)for(let x=0;x<5;x++)st[x+5*y]^=d[x];const q=new Array(25).fill(0n);for(let y=0;y<5;y++)for(let x=0;x<5;x++){const i=x+5*y;q[y+5*((2*x+3*y)%5)]=rot64(st[i],ROT[i]);}for(let y=0;y<5;y++)for(let x=0;x<5;x++)st[x+5*y]=q[x+5*y]^((~q[(x+1)%5+5*y])&q[(x+2)%5+5*y]);st[0]^=rc;}}const out=new Uint8Array(32);for(let i=0;i<32;i++)out[i]=Number((st[i>>3]>>BigInt((i&7)*8))&255n);return[...out].map(v=>v.toString(16).padStart(2,"0")).join("");}
+const DEDUPE_INDEX_PATH=".vivify-sha3-index.json";
+async function contentSha3(text){return sha3_256(new TextEncoder().encode(text));}
 
 // One commit holding only new, content-unique blobs on the branch. Re-check
 // after every branch race so concurrent identical uploads cannot both commit.
@@ -103,7 +100,7 @@ async function commit(env, entries, message) {
     const ref = await github(env, "GET", `/git/ref/heads/${branch}`);
     let parent = null;
     let baseTree = undefined;
-    const existingBlobs = new Set();
+    let hashIndex = {};
     if (ref.status === 200) {
       parent = ref.data.object.sha;
       const parentCommit = await github(env, "GET", `/git/commits/${parent}`);
@@ -112,23 +109,39 @@ async function commit(env, entries, message) {
       const currentTree = await github(env, "GET", `/git/trees/${baseTree}?recursive=1`);
       if (currentTree.status !== 200) throw githubFailure("reading existing log blobs for deduplication", currentTree);
       if (currentTree.data.truncated) throw new Error("deduplication aborted: GitHub returned a truncated logs tree");
-      for (const item of currentTree.data.tree || []) if (item.type === "blob") existingBlobs.add(item.sha);
-    } else if (ref.status !== 404) {
-      throw githubFailure("reading the branch", ref);
-    }
-    const uniqueEntries = [];
-    const incomingBlobs = new Set();
+      const items = currentTree.data.tree || [];
+      const indexItem = items.find(item => item.path === DEDUPE_INDEX_PATH && item.type === "blob");
+      if (indexItem) {
+        const result = await github(env, "GET", `/git/blobs/${indexItem.sha}`);
+        if (result.status !== 200 || typeof result.data.content !== "string") throw new Error("reading SHA3 index failed");
+        const raw = atob(result.data.content.replace(/\\n/g, ""));
+        const parsed = JSON.parse(new TextDecoder().decode(Uint8Array.from(raw, ch => ch.charCodeAt(0))));
+        if (parsed.version !== 1 || !parsed.hashes || typeof parsed.hashes !== "object") throw new Error("invalid SHA3 index format");
+        hashIndex = parsed.hashes;
+      } else {
+        // Backfill existing logs once when upgrading from the SHA-1 deduper.
+        for (const item of items) {
+          if (item.type !== "blob" || !item.path.startsWith("logs/")) continue;
+          const blob = await github(env, "GET", `/git/blobs/${item.sha}`);
+          if (blob.status !== 200 || typeof blob.data.content !== "string") throw new Error(`SHA3 migration failed for ${item.path}`);
+          const raw = atob(blob.data.content.replace(/\\n/g, ""));
+          hashIndex[sha3_256(Uint8Array.from(raw, ch => ch.charCodeAt(0)))] = item.path;
+        }
+      }
+    } else if (ref.status !== 404) throw githubFailure("reading the branch", ref);
+    const uniqueEntries = [], incoming = new Set();
     for (const entry of entries) {
-      const sha = await gitBlobSha(entry.text);
-      if (existingBlobs.has(sha) || incomingBlobs.has(sha)) continue;
-      incomingBlobs.add(sha);
-      uniqueEntries.push(entry);
+      const hash = await contentSha3(entry.text);
+      if (hashIndex[hash] || incoming.has(hash)) continue;
+      incoming.add(hash); hashIndex[hash] = entry.path; uniqueEntries.push(entry);
     }
     const deduplicated = entries.length - uniqueEntries.length;
-    if (uniqueEntries.length === 0) return { sha: null, stored: 0, deduplicated };
+    if (!uniqueEntries.length) return { sha: null, stored: 0, deduplicated };
+    const indexText = JSON.stringify({ version: 1, algorithm: "sha3-256", hashes: hashIndex });
     const tree = await github(env, "POST", "/git/trees", {
       ...(baseTree ? { base_tree: baseTree } : {}),
-      tree: uniqueEntries.map((entry) => ({ path: entry.path, mode: "100644", type: "blob", content: entry.text })),
+      tree: [...uniqueEntries.map(entry => ({ path: entry.path, mode: "100644", type: "blob", content: entry.text })),
+        { path: DEDUPE_INDEX_PATH, mode: "100644", type: "blob", content: indexText }],
     });
     if (tree.status !== 201) throw new Error(`writing the files: ${tree.status}`);
     const made = await github(env, "POST", "/git/commits", {
