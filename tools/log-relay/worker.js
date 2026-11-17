@@ -87,7 +87,7 @@ async function invalidateLogIndexCache(env) {
 }
 
 // Use a small, audited SHA3 implementation; Web Crypto does not expose SHA3.
-import { sha3_256 } from "@noble/hashes/sha3.js";
+import { sha3_256 } from "@noble/hashes/sha3";
 export { sha3_256 };
 function sha3Hex(bytes) { return [...sha3_256(bytes)].map(byte => byte.toString(16).padStart(2, "0")).join(""); }
 const DEDUPE_INDEX_PATH = ".vivify-sha3-index.json";
