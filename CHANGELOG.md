@@ -37,6 +37,15 @@ Not tried on a headset.
   stage; the pairing now leaves the instancing variants out and pairs the
   rest. Converted bundles are redone once (conversion version 28).
 
+### Added
+- A per-eye check for Aether's screen effects. Aether runs its bokeh and
+  fade effects once per eye on the two halves of the native stereo picture.
+  The flat-screen check only ever measured the left eye, so a dead right
+  eye went unreported. Now, once per set of effects each level, both eyes
+  are measured going in and coming out ("Vivify stereo effect eyes: ...").
+  That shows which eye dies, and whether the effect or the scene feeding
+  it is to blame. This is a diagnostic only; nothing is changed yet.
+
 ### Known
 - Lifelike's grass still does not draw. With the pairing fixed, its hull
   shader is the next blocker: it works out a separate tessellation factor

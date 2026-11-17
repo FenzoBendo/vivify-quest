@@ -178,6 +178,7 @@ bool Runtime::TryApplyStereoBlits(UnityEngine::RenderTexture* src, UnityEngine::
       SeparateEye::EndBlitEye();
     }
     if (!bindings.Restore()) { SeparateEye::RejectCameraBindings(); return false; }
+    StereoEyeCheck(src, stereo.get());
     ApplyBlits(stereo.get(), dest, cameraName, -1);
     static bool reported = false;
     if (!reported) { PaperLogger.info("Vivify stereo screen effects: explicit-eye image processing; reusing the native multiview scene"); reported = true; }
@@ -511,6 +512,39 @@ int DistinctBlockColours(UnityEngine::RenderTexture* probe, UnityEngine::Texture
   return static_cast<int>(std::min<size_t>(colours.size(), 3));
 }
 }  // namespace
+
+// Per-eye check of the explicit-eye screen effects (0.15.30). Aether runs
+// its bokeh and fade effects once per eye on the slices of the native
+// two-eye picture; the flat-screen guard below only ever measured the left
+// slice, so a right eye that came out dead went unreported. Once per set of
+// active effects per level, each eye's picture is measured going in (src)
+// and coming out (stereo) in 16 blocks.
+void Runtime::StereoEyeCheck(UnityEngine::RenderTexture* src, UnityEngine::RenderTexture* stereo) {
+  std::string names;
+  for (auto const* list : {&_preEffects, &_postEffects})
+    for (auto const& effect : *list) names += (names.empty() ? "" : ", ") + effect.data.asset;
+  if (names.empty() || !_stereoEyeChecked.insert(names).second) return;
+  if (!EnsureBlitGuardTextures()) return;
+  int counts[2][2] = {};
+  int colours[2][2][3] = {};
+  auto* cb = ImmediateCommandBuffer();
+  for (int eye = 0; eye < 2; ++eye) {
+    BlitSlice(cb, ToTargetId(src), eye, ToTargetId(_blitGuardIn), -1);
+    BlitSlice(cb, ToTargetId(stereo), eye, ToTargetId(_blitGuardOut), -1);
+    UnityEngine::Graphics::ExecuteCommandBuffer(cb);
+    cb->Clear();
+    counts[eye][0] = DistinctBlockColours(_blitGuardIn, _blitGuardReader, colours[eye][0]);
+    counts[eye][1] = DistinctBlockColours(_blitGuardOut, _blitGuardReader, colours[eye][1]);
+  }
+  auto text = [&](int eye, int side) {
+    int const n = counts[eye][side];
+    auto const* c = colours[eye][side];
+    return (n < 0 ? std::string("unreadable") : (n > 2 ? std::string("3+") : std::to_string(n)) + " colour(s)") +
+        " rgb=(" + std::to_string(c[0]) + "," + std::to_string(c[1]) + "," + std::to_string(c[2]) + ")";
+  };
+  PaperLogger.info("Vivify stereo effect eyes: [{}] left in {} out {}; right in {} out {}", names, text(0, 0),
+                   text(0, 1), text(1, 0), text(1, 1));
+}
 
 // Flat-screen guard (0.15.11, as asked): every 2 s while an effect is on, the
 // picture coming out of the effects is measured in 16 blocks. If they are
