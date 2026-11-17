@@ -83,24 +83,52 @@ async function invalidateLogIndexCache(env) {
   await caches.default.delete(logIndexCacheKey(env));
 }
 
-// One commit holding `entries` on top of the branch (or as its first commit).
+// Git stores file contents as content-addressed blobs. Hash the exact UTF-8
+// bytes using Git's blob framing so identical files share one object identity.
+async function gitBlobSha(text) {
+  const bytes = new TextEncoder().encode(text);
+  const header = new TextEncoder().encode(`blob ${bytes.length}\\0`);
+  const framed = new Uint8Array(header.length + bytes.length);
+  framed.set(header);
+  framed.set(bytes, header.length);
+  const digest = await crypto.subtle.digest("SHA-1", framed);
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+// One commit holding only new, content-unique blobs on the branch. Re-check
+// after every branch race so concurrent identical uploads cannot both commit.
 async function commit(env, entries, message) {
   const branch = env.BRANCH || "LOGS";
   for (let attempt = 0; attempt < 4; attempt++) {
     const ref = await github(env, "GET", `/git/ref/heads/${branch}`);
     let parent = null;
     let baseTree = undefined;
+    const existingBlobs = new Set();
     if (ref.status === 200) {
       parent = ref.data.object.sha;
       const parentCommit = await github(env, "GET", `/git/commits/${parent}`);
       if (parentCommit.status !== 200) throw new Error(`reading the branch head: ${parentCommit.status}`);
       baseTree = parentCommit.data.tree.sha;
+      const currentTree = await github(env, "GET", `/git/trees/${baseTree}?recursive=1`);
+      if (currentTree.status !== 200) throw githubFailure("reading existing log blobs for deduplication", currentTree);
+      if (currentTree.data.truncated) throw new Error("deduplication aborted: GitHub returned a truncated logs tree");
+      for (const item of currentTree.data.tree || []) if (item.type === "blob") existingBlobs.add(item.sha);
     } else if (ref.status !== 404) {
       throw githubFailure("reading the branch", ref);
     }
+    const uniqueEntries = [];
+    const incomingBlobs = new Set();
+    for (const entry of entries) {
+      const sha = await gitBlobSha(entry.text);
+      if (existingBlobs.has(sha) || incomingBlobs.has(sha)) continue;
+      incomingBlobs.add(sha);
+      uniqueEntries.push(entry);
+    }
+    const deduplicated = entries.length - uniqueEntries.length;
+    if (uniqueEntries.length === 0) return { sha: null, stored: 0, deduplicated };
     const tree = await github(env, "POST", "/git/trees", {
       ...(baseTree ? { base_tree: baseTree } : {}),
-      tree: entries.map((entry) => ({ path: entry.path, mode: "100644", type: "blob", content: entry.text })),
+      tree: uniqueEntries.map((entry) => ({ path: entry.path, mode: "100644", type: "blob", content: entry.text })),
     });
     if (tree.status !== 201) throw new Error(`writing the files: ${tree.status}`);
     const made = await github(env, "POST", "/git/commits", {
@@ -112,7 +140,7 @@ async function commit(env, entries, message) {
     const moved = parent
       ? await github(env, "PATCH", `/git/refs/heads/${branch}`, { sha: made.data.sha, force: false })
       : await github(env, "POST", "/git/refs", { ref: `refs/heads/${branch}`, sha: made.data.sha });
-    if (moved.status === 200 || moved.status === 201) return made.data.sha;
+    if (moved.status === 200 || moved.status === 201) return { sha: made.data.sha, stored: uniqueEntries.length, deduplicated };
     // Another upload moved the branch first: build on top of it and try again.
     if (moved.status !== 422) throw new Error(`moving the branch: ${moved.status}`);
   }
@@ -270,9 +298,11 @@ export default {
       const folder = `logs/${date}/${time}_${version.replace(/ /g, "-")}${body.lite ? "-lite" : ""}_${upload}`;
       const entries = body.files.map((file) => ({ path: `${folder}/${file.name}`, text: file.text }));
       try {
-        const sha = await commit(env, entries, `Logs from Vivify ${version} (${upload})`);
-        await invalidateLogIndexCache(env);
-        return reply(200, `${folder} ${sha.slice(0, 7)}`);
+        const result = await commit(env, entries, `Logs from Vivify ${version} (${upload})`);
+        if (result.stored > 0) await invalidateLogIndexCache(env);
+        return reply(200, result.stored === 0
+          ? `deduplicated ${result.deduplicated} file(s); no new data stored`
+          : `${folder} ${result.sha.slice(0, 7)}; stored ${result.stored}, deduplicated ${result.deduplicated}`);
       } catch (error) { return reply(502, `could not commit: ${error.message}`); }
     }
     if (request.method === "GET" && env.ASSETS) return env.ASSETS.fetch(request);
