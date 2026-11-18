@@ -40,6 +40,34 @@ conversion cache version, and cached conversions are redone automatically.
   index existed are not deduplicated against; they leave with the 30-day
   retention.
 
+## [0.15.33] - 2026-11-18
+
+Not tried on a headset.
+
+### Fixed
+- 42-flux could not be played with the Separate-Eye Renderer on ("Map effects
+  could not be prepared"). Its Sun/ShadedEclipse shader borrows a pass from
+  Sun/Eclipse by name (`UsePass "Sun/Eclipse/DrawSphere"`). The renderer's
+  per-eye shader copies rename every shader (`__VivifyEye0__/Sun/Eclipse`)
+  but left that reference pointing at the old name. Unity could not resolve
+  it, so it marked the copy unsupported, and that one shader blocked the
+  whole map. UsePass references to shaders in the same bundle are now
+  renamed along with them; references to Unity's built-in shaders are left
+  alone. Converted copies are redone once (conversion version 30).
+- Log uploads are more reliable. A request that fails with a server error
+  (5xx), a rate limit or a dropped connection is retried up to three times,
+  after 4, 12 and 30 seconds; before, the upload stopped at the first failure
+  until the next map ended. Each request now carries at most 1.5 MB instead
+  of 3 MB. Two uploads in the 0.15.32 logs failed with an HTTP 503 from
+  Cloudflare, both carrying a large global log. When Cloudflare answers with
+  its own error page, the log now records its error code and title instead
+  of the start of the HTML. Nothing was lost before either: log offsets only
+  move after a successful upload.
+- A per-eye shader copy that cannot run on the device no longer blocks the
+  play button. The map plays with the normal renderer instead and the log
+  says which shader it was, as already happened when a shader could not be
+  converted.
+
 ## [0.15.32] - 2026-11-18
 
 Not tried on a headset.

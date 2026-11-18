@@ -1532,7 +1532,8 @@ struct LinkedShader {
 
 LinkedShader ConvertThroughParsedForm(uint8_t const* nodeData, size_t nodeSize,
                                       SerializedFileParse::ShaderObject const& shader,
-                                      ShaderConversionOptions const& conversionOptions) {
+                                      ShaderConversionOptions const& conversionOptions,
+                                      std::set<std::string> const& bundleShaderNames = {}) {
   using SerializedFileParse::ParsedProgramRef;
   LinkedShader out;
 
@@ -2201,6 +2202,24 @@ LinkedShader ConvertThroughParsedForm(uint8_t const* nodeData, size_t nodeSize,
     std::vector<size_t> offsets;
     if (shader.objectNameStringOffset) offsets.push_back(shader.objectNameStringOffset);
     if (shader.parsedFormNameStringOffset) offsets.push_back(shader.parsedFormNameStringOffset);
+    // A UsePass ("Sun/Eclipse/DRAWSPHERE") names another shader. In an
+    // isolated donor that shader is renamed too, so a reference to it is
+    // renamed with it, or Unity cannot resolve the pass and the whole shader
+    // is unsupported: 42-flux's Sun/ShadedEclipse failed the renderer
+    // preflight in every donor and blocked play (0.15.33). Only references to
+    // shaders in this bundle; built-in shaders keep their names. The
+    // immutable-material prefix is per shader, so a reference to the one
+    // specialized shader is left alone.
+    if ((conversionOptions.namespaceEyeShaders || conversionOptions.namespaceSingleViewShaders) &&
+        !conversionOptions.specializeImmutableMaterialFeatures) {
+      for (auto const& [useName, offset] : shader.usePasses) {
+        size_t const slash = useName.rfind('/');
+        if (slash == std::string::npos || slash == 0 || offset == 0) continue;
+        std::string const target = useName.substr(0, slash);
+        if (!bundleShaderNames.contains(target) || target == MaterialSpecialization::kShader) continue;
+        offsets.push_back(offset);
+      }
+    }
     std::sort(offsets.begin(), offsets.end(), std::greater<size_t>());
     offsets.erase(std::unique(offsets.begin(), offsets.end()), offsets.end());
     if (offsets.empty()) { out.reason = "shader name fields could not be isolated"; return out; }
@@ -2339,6 +2358,8 @@ ShaderConversion ConvertShadersToGles(std::string const& sourcePath,
 
     if (file.shaders.empty()) continue;
 
+    std::set<std::string> bundleShaderNames;
+    for (auto const& shader : file.shaders) if (!shader.name.empty()) bundleShaderNames.insert(shader.name);
     std::vector<SerializedFileParse::ObjectEdit> edits;
     for (auto const& shader : file.shaders) {
       conversion.shadersSeen++;
@@ -2368,7 +2389,7 @@ ShaderConversion ConvertShadersToGles(std::string const& sourcePath,
           profile &= MaterialSpecialization::Matches(material.floats);
         }
         shaderOptions.specializeImmutableMaterialFeatures = profile && matchingMaterials > 0;
-        auto linked = ConvertThroughParsedForm(nodeData, nodeSize, shader, shaderOptions);
+        auto linked = ConvertThroughParsedForm(nodeData, nodeSize, shader, shaderOptions, bundleShaderNames);
         conversion.variantsLinked += linked.variantsLinked;
         conversion.variantsRefused += linked.variantsRefused;
         conversion.stereoVariantsRemapped += linked.stereoRemapped;

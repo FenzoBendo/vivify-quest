@@ -1057,10 +1057,15 @@ void PollImpl() {
   for (int budget = 0; budget != 4 && !shaderChecks.empty(); ++budget) {
     auto* shader = shaderChecks.front().ptr();
     if (!Alive(shader) || !shader->get_isSupported()) {
+      std::string const name = Alive(shader) ? std::string(shader->get_name()) : "<destroyed>";
+      PaperLogger.error("Vivify renderer preflight: shader '{}' is unsupported", name);
       failed = true;
-      PaperLogger.error("Vivify renderer preflight: shader '{}' is unsupported", Alive(shader) ? std::string(shader->get_name()) : "<destroyed>");
       if (RetryWithoutTessellation()) return;
-      PreparationFailed(); return;
+      // One donor shader this device cannot run is no reason to block the
+      // map (0.15.33: 42-flux could not be played at all with the renderer
+      // on). It plays with the normal renderer, as a refused conversion does.
+      FallBackToNormalRenderer("its per-eye copy of shader '" + name + "' cannot run on this device");
+      return;
     }
     shaderChecks.pop_front();
   }
