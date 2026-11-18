@@ -86,12 +86,19 @@ async function invalidateLogIndexCache(env) {
   await caches.default.delete(logIndexCacheKey(env));
 }
 
-// Use a small, audited SHA3 implementation; Web Crypto does not expose SHA3.
-import { sha3_256 } from "@noble/hashes/sha3";
-export { sha3_256 };
-function sha3Hex(bytes) { return [...sha3_256(bytes)].map(byte => byte.toString(16).padStart(2, "0")).join(""); }
+// Content hashes for deduplication: SHA-256 through Web Crypto, which runs
+// natively. The SHA3-256 used before ran in JavaScript and took about 100 ms
+// of CPU per 1.5 MB upload, which is more than a Worker request is allowed:
+// uploads failed with Cloudflare's "Worker exceeded resource limits" (503).
+// SHA-256 of the same text takes about 5 ms. Keys carry an algorithm prefix,
+// so the SHA3 keys already in the index can never match a new hash; content
+// stored before the switch is simply not deduplicated against.
+// The index file keeps its name, so its stored savings totals carry over.
 const DEDUPE_INDEX_PATH = ".vivify-sha3-index.json";
-async function contentSha3(text) { return sha3Hex(new TextEncoder().encode(text)); }
+export async function contentHash(text) {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+  return "sha256:" + [...digest].map(byte => byte.toString(16).padStart(2, "0")).join("");
+}
 function decodeBase64Text(content) {
   const raw = atob(content.replace(/\n/g, ""));
   return new TextDecoder().decode(Uint8Array.from(raw, ch => ch.charCodeAt(0)));
@@ -125,10 +132,10 @@ async function commit(env, entries, message) {
       const indexItem = items.find(item => item.path === DEDUPE_INDEX_PATH && item.type === "blob");
       if (indexItem) {
         const result = await github(env, "GET", `/git/blobs/${indexItem.sha}`);
-        if (result.status !== 200 || typeof result.data.content !== "string") throw new Error("reading SHA3 index failed");
+        if (result.status !== 200 || typeof result.data.content !== "string") throw new Error("reading the dedupe index failed");
         const raw = atob(result.data.content.replace(/\n/g, ""));
         const parsed = JSON.parse(new TextDecoder().decode(Uint8Array.from(raw, ch => ch.charCodeAt(0))));
-        if (parsed.version !== 1 || !parsed.hashes || typeof parsed.hashes !== "object") throw new Error("invalid SHA3 index format");
+        if (parsed.version !== 1 || !parsed.hashes || typeof parsed.hashes !== "object") throw new Error("invalid dedupe index format");
         hashIndex = parsed.hashes;
         lastSeen = parsed.lastSeen && typeof parsed.lastSeen === "object" ? parsed.lastSeen : {};
         dedupeStats = { savedBytes: Number(parsed.stats?.savedBytes) || 0, savedFiles: Number(parsed.stats?.savedFiles) || 0 };
@@ -145,7 +152,7 @@ async function commit(env, entries, message) {
     let savedThisUpload = 0;
     let savedFilesThisUpload = 0;
     for (const entry of entries) {
-      const hash = await contentSha3(entry.text);
+      const hash = await contentHash(entry.text);
       const size = new TextEncoder().encode(entry.text).byteLength;
       lastSeen[hash] = Date.now();
       if (hashIndex[hash] || incoming.has(hash)) {
@@ -160,7 +167,7 @@ async function commit(env, entries, message) {
     dedupeStats.savedFiles += savedFilesThisUpload;
     if (savedFilesThisUpload) indexNeedsWrite = true;
     if (!uniqueEntries.length && !indexNeedsWrite) return { sha: null, stored: 0, deduplicated, savedBytes: dedupeStats.savedBytes };
-    const indexText = JSON.stringify({ version: 1, algorithm: "sha3-256", stats: dedupeStats, hashes: hashIndex, lastSeen });
+    const indexText = JSON.stringify({ version: 1, algorithm: "sha256", stats: dedupeStats, hashes: hashIndex, lastSeen });
     const tree = await github(env, "POST", "/git/trees", {
       ...(baseTree ? { base_tree: baseTree } : {}),
       tree: [...uniqueEntries.map(entry => ({ path: entry.path, mode: "100644", type: "blob", content: entry.text })),
@@ -251,7 +258,7 @@ async function pruneLogsWhenOversized(env, now = Date.now()) {
     const protectedPaths = new Set();
     if (indexItem) {
       const indexBlob = await github(env, "GET", `/git/blobs/${indexItem.sha}`);
-      if (indexBlob.status !== 200 || typeof indexBlob.data.content !== "string") throw new Error("reading SHA3 index during size cleanup failed");
+      if (indexBlob.status !== 200 || typeof indexBlob.data.content !== "string") throw new Error("reading the dedupe index during size cleanup failed");
       index = JSON.parse(decodeBase64Text(indexBlob.data.content));
       for (const [hash, storedPath] of Object.entries(index.hashes || {})) {
         if (Number(index.lastSeen?.[hash]) >= cutoff) protectedPaths.add(storedPath);
@@ -306,7 +313,7 @@ async function pruneExpiredLogs(env, now = Date.now()) {
     const recentlySeenPaths = new Set();
     if (indexItem) {
       const indexBlob = await github(env, "GET", `/git/blobs/${indexItem.sha}`);
-      if (indexBlob.status !== 200 || typeof indexBlob.data.content !== "string") throw new Error("reading SHA3 index during retention failed");
+      if (indexBlob.status !== 200 || typeof indexBlob.data.content !== "string") throw new Error("reading the dedupe index during retention failed");
       index = JSON.parse(decodeBase64Text(indexBlob.data.content));
       for (const [hash, storedPath] of Object.entries(index.hashes || {})) {
         if (Number(index.lastSeen?.[hash]) >= now - RECENT_LOG_WINDOW_MS) recentlySeenPaths.add(storedPath);

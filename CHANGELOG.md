@@ -40,6 +40,19 @@ conversion cache version, and cached conversions are redone automatically.
   index existed are not deduplicated against; they leave with the 30-day
   retention.
 
+## [0.15.34] - 2026-11-18
+
+Not tried on a headset.
+
+### Fixed
+- A crash when a screen effect started on maps whose effects run once per
+  eye (Aether's bokeh at 2 s, and two other levels in the 0.15.33 logs). All
+  three crash reports point to the same place: the per-eye diagnostic added
+  in 0.15.30 ("Vivify stereo effect eyes"), which crashed inside Unity while
+  reading its small sample image back. The diagnostic is removed. It had
+  already answered its question (Aether's effects come out right in both
+  eyes).
+
 ## [0.15.33] - 2026-11-18
 
 Not tried on a headset.
@@ -63,6 +76,15 @@ Not tried on a headset.
   its own error page, the log now records its error code and title instead
   of the start of the HTML. Nothing was lost before either: log offsets only
   move after a successful upload.
+- Log relay: uploads failed with Cloudflare's "Worker exceeded resource
+  limits" (HTTP 503; the 0.15.33 logs name it now). The relay hashed each
+  uploaded file with SHA3-256 written in JavaScript, about 100 ms of CPU per
+  1.5 MB, which is more than a Worker request is allowed. It now uses SHA-256
+  from Web Crypto, which runs natively: about 5 ms for the same text. Index
+  keys carry a `sha256:` prefix, so the existing SHA3 entries never match;
+  logs stored before the switch are not deduplicated against, and the stored
+  savings totals carry over. The `@noble/hashes` dependency is gone. Needs
+  the relay redeployed (`npx wrangler deploy` in `tools/log-relay`).
 - A per-eye shader copy that cannot run on the device no longer blocks the
   play button. The map plays with the normal renderer instead and the log
   says which shader it was, as already happened when a shader could not be
