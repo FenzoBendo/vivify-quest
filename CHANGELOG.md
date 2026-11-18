@@ -40,6 +40,32 @@ conversion cache version, and cached conversions are redone automatically.
   index existed are not deduplicated against; they leave with the 30-day
   retention.
 
+## [0.15.32] - 2026-11-18
+
+Not tried on a headset.
+
+### Fixed
+- Aether's wireframes still doubled and z-fought in 0.15.31, which also
+  made them look much wider than they should. The 0.15.31 logs show these
+  geometry shaders drawn through the native two-eye program ("scene route:
+  native multiview"). On the Quest that program cannot give a geometry
+  shader a correct second eye: without the right-eye copy one eye showed
+  the other eye's view, and with it each eye showed both. Materials whose
+  shader has a geometry stage now take the Separate-Eye Renderer's scene
+  path, which draws each eye with a single-eye program, as tessellated
+  materials already did. In Aether that is the wireframe ("Mawntee/Beat
+  Saber Wireframe 3D-Noise") and "Swifter/TriangleExplosion". While one of
+  them is on screen, the scene is drawn once per eye, which costs more, and
+  anti-aliasing is off for the level. This needs the Separate-Eye Renderer
+  on; without it they draw as before.
+
+### Known
+- Aether's yellow square and thin blue line near the end are not explained
+  by the logs. Neither is a geometry shader, nothing fell back to a stand-in,
+  and the screen effects are fine in both eyes. The two grab-pass shaders
+  (Swifter/VFX/ShockwaveParticle, Swifter/GlassTerrain) read a two-eye
+  image, which matches what is bound during play.
+
 ## [0.15.31] - 2026-11-18
 
 Not tried on a headset.
