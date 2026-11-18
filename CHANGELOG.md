@@ -40,6 +40,21 @@ conversion cache version, and cached conversions are redone automatically.
   index existed are not deduplicated against; they leave with the 30-day
   retention.
 
+## [0.15.31] - 2026-11-18
+
+Not tried on a headset.
+
+### Fixed
+- Geometry effects drawn twice in each eye, z-fighting (Aether). Since
+  0.15.12, every geometry shader ran a second time to draw a copy into the
+  right eye, for drivers that run geometry shaders for the left eye only.
+  Drivers with EXT_multiview_tessellation_geometry_shader already run them
+  once per eye, so on those each eye got its own copy plus the other eye's,
+  in slightly different places on top of each other: one looked right, the
+  other wrong, and they fought. The copy now only happens where the driver
+  lacks that extension; elsewhere each eye draws its own once. Converted
+  bundles are redone once (conversion version 29).
+
 ## [0.15.30] - 2026-11-17
 
 Not tried on a headset.

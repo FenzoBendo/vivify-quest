@@ -886,6 +886,27 @@ check("it reads the layer from the vertex stage's view index",
       "flat in highp int vivify_ViewIndex[];" in source, source)
 check("and does not use gl_ViewID_OVR, which geometry stages lack", "gl_ViewID_OVR" not in source, source)
 
+# The geometry right-eye copy (0.15.12) is for drivers that run a multiview
+# geometry stage once, for the left eye. Where the driver has
+# EXT_multiview_tessellation_geometry_shader it runs the stage per view, and
+# a copy drew every primitive twice in each eye (Aether z-fought, 0.15.31):
+# the copy, its second invocation and its layer write are compiled out there.
+os.environ["VIVIFY_GEOMETRY_EYE_COPY"] = "1"
+proc, fields, _, source = run("glsl-mv", geometry_layer(False))
+del os.environ["VIVIFY_GEOMETRY_EYE_COPY"]
+check("an eye-copy geometry stage translates", fields.get("ok") == "1", fields.get("error", ""))
+check("its copy is only for drivers without per-view geometry stages",
+      "#ifdef GL_EXT_multiview_tessellation_geometry_shader\n#define VIVIFY_EYE_COPY 0\n#else\n"
+      "#define VIVIFY_EYE_COPY 1\nlayout(invocations = 2) in;\n#endif" in source, source)
+check("the copy's move and layer write are behind VIVIFY_EYE_COPY",
+      "if (VIVIFY_EYE_COPY != 0) {" in source and "vivify_EyeCopy = VIVIFY_EYE_COPY != 0 ? gl_InvocationID : 0;" in source,
+      source)
+check("only one unconditional invocations declaration", source.count("layout(invocations") == 1, source)
+# The branch for a driver with the extension compiles as well (glslang does
+# not define the extension's macro, so the run above compiled the copy).
+glslang_compile(source.replace("#ifdef GL_EXT_multiview_tessellation_geometry_shader", "#if 1", 1),
+                "eye copy with per-view geometry stages")
+
 
 def layer_writing_vertex():
     isgn = m.signature_chunk([{"name": "POSITION", "index": 0, "register": 0}], b"ISGN")
