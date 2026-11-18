@@ -719,6 +719,7 @@ void Runtime::ResetRuntime(std::string_view reason) {
   _blitGuardAllOff = false;
   _blitGuardLogged = false;
   _stereoEyeChecked.clear();
+  _replayCameraLogged = false;
   _blitGuardLastSample = 0.0f;
   _mainBlitAllocation.reset();
   _scratchBlitAllocation.reset();

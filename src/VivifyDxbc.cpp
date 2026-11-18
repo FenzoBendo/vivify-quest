@@ -1239,8 +1239,13 @@ class GlslEmitter {
   // EmitVertex, preceded for a right-eye copy by the move into that eye.
   void EmitVertexLine() {
     if (EyeCopyActive()) {
-      Line("if (vivify_EyeCopy != 0) gl_Position = vivify_LeftToRight * gl_Position;");
-      Line("gl_Layer = vivify_EyeCopy;");
+      // VIVIFY_EYE_COPY is 0 where the driver runs the stage once per view
+      // itself (see the source header): there the views route each primitive
+      // and the layer is left alone.
+      Line("if (VIVIFY_EYE_COPY != 0) {");
+      Line("  if (vivify_EyeCopy != 0) gl_Position = vivify_LeftToRight * gl_Position;");
+      Line("  gl_Layer = vivify_EyeCopy;");
+      Line("}");
     }
     Line("EmitVertex();");
   }
@@ -3985,7 +3990,7 @@ GlslResult GlslEmitter::Run() {
   bool const eyeCopy = EyeCopyActive() && _gsInvocations <= 1;
   if (EyeCopyActive()) {
     if (eyeCopy) {
-      addPrologue("int vivify_EyeCopy = gl_InvocationID;");
+      addPrologue("int vivify_EyeCopy = VIVIFY_EYE_COPY != 0 ? gl_InvocationID : 0;");
       std::string const cb = "vivify_cb_UnityStereoGlobals";
       addPrologue("mat4 vivify_LeftToRight = mat4(" + cb + "[28], " + cb + "[29], " + cb + "[30], " + cb +
                   "[31]) * inverse(mat4(" + cb + "[24], " + cb + "[25], " + cb + "[26], " + cb + "[27]));");
@@ -4058,8 +4063,26 @@ GlslResult GlslEmitter::Run() {
   source += "precision highp float;\n";
   source += "precision highp int;\n";
   source += _declarations;
+  if (EyeCopyActive()) {
+    // The right-eye copy is only for a driver without
+    // EXT_multiview_tessellation_geometry_shader, which runs the stage once,
+    // for the left eye (0.15.12). A driver with it runs the stage once per
+    // view (the num_views declaration above), each run already drawing into
+    // its own eye; a copy there drew every primitive twice in each eye, its
+    // own and the other eye's, on top of each other: Aether's geometry
+    // effects z-fought, one copy right and one wrong (0.15.31).
+    if (eyeCopy) {
+      source += "#ifdef GL_EXT_multiview_tessellation_geometry_shader\n";
+      source += "#define VIVIFY_EYE_COPY 0\n";
+      source += "#else\n";
+      source += "#define VIVIFY_EYE_COPY 1\n";
+      source += "layout(invocations = 2) in;\n";
+      source += "#endif\n";
+    } else {
+      source += "#define VIVIFY_EYE_COPY 0\n";
+    }
+  }
   if (eyeCopy) {
-    source += "layout(invocations = 2) in;\n";
     if (std::find(_uniformNames.begin(), _uniformNames.end(), "UnityStereoGlobals") == _uniformNames.end()) {
       source += "layout(std140) uniform UnityStereoGlobals { vec4 vivify_cb_UnityStereoGlobals[68]; };\n";
     }

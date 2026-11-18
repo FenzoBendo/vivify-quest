@@ -660,6 +660,10 @@ private:
   // picture going in and coming out, once per set of effects per level.
   void StereoEyeCheck(UnityEngine::RenderTexture* src, UnityEngine::RenderTexture* stereo);
   std::set<std::string> _stereoEyeChecked;
+  // The Replay mod's render camera draws with the mono donor (0.15.31).
+  bool IsReplayRenderCamera(UnityEngine::Camera* camera);
+  bool _replayCameraScoped = false;
+  bool _replayCameraLogged = false;
   std::optional<RenderTexturePolicy::Descriptor> _mainBlitAllocation, _scratchBlitAllocation;
   struct BlitMaterialValidity {
     SafePtr<UnityEngine::Material> material;

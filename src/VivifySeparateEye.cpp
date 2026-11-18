@@ -864,6 +864,37 @@ static void PrepareImpl(std::string const& level, std::string const& source, std
         if (analyzeBindings) catalogs[eye] = BundleConvert::ScanShaders(paths[eye]).stereoBindingMasks;
         continue;
       }
+      // The mono donor draws map-authored texture cameras and, since 0.15.31,
+      // the Replay mod's render camera. Where both scene eyes translated the
+      // map's tessellation, the mono donor translates it too, or rendered
+      // replays and map cameras drew no tessellated geometry at all. Its own
+      // cache file; a refusal keeps the ordinary mono donor.
+      bool const monoTessellation = eye == 2 && tessellation.selected;
+      if (monoTessellation) {
+        std::string const tessPath = cache + ".tess-mono-isolated.vivify";
+        std::string const tessVersion = BundleConvert::ShaderCacheVersion(std::string(kVersion) + "-tess-mono");
+        std::string stored; std::ifstream(tessPath + ".version") >> stored;
+        bool ready = stored == tessVersion && std::filesystem::exists(tessPath);
+        if (!ready) {
+          BundleConvert::ShaderConversionOptions options;
+          options.singleViewOnly = true; options.singleViewStereoEye = -1;
+          options.namespaceSingleViewShaders = true; options.renameArchiveFiles = true;
+          options.skipQuestUnusedVariants = true; options.exposeRenderDependencies = true;
+          options.specializeImmutableMaterialFeatures = MapAllowsImmutableMaterialFeatures(source);
+          options.uniformTriangleTessellation = true;
+          auto result = BundleConvert::ConvertShadersToGles(source, tessPath, options);
+          ready = result.ok() && !result.shadersRefused && !result.variantsRefused &&
+                  result.tessellationShadersUntranslated == 0;
+          if (ready) std::ofstream(tessPath + ".version") << tessVersion << '\n';
+          else PaperLogger.warn("Vivify mono donor tessellation declined ({}); map cameras and rendered replays keep "
+                                "the ordinary mono donor", result.message);
+        }
+        if (ready) {
+          paths[eye] = tessPath;
+          PaperLogger.info("Vivify mono donor: tessellation translated for map cameras and rendered replays");
+          continue;
+        }
+      }
       std::string version; std::ifstream(paths[eye] + ".version") >> version;
       std::string const cacheVersion = BundleConvert::ShaderCacheVersion(
           eye == 5 ? "perspective-native-v7-upstream0159-typed-names" : kVersion);

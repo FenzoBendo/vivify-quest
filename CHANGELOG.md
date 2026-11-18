@@ -11,6 +11,15 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+### Added
+- Vivify Quest Converter, a desktop app for Windows, Linux and macOS
+  (`converter/gui`). It is the command-line converter in a window: drop PC
+  bundles or map folders on it, then convert them all in turn. Each bundle's
+  report, and what it was built for, is shown beside the queue. The options
+  are the CLI's, with explanations. It uses the same library, and its output
+  is byte-identical to `vivify-convert`'s. The Converter library workflow
+  builds it as `VivifyQuestConverter-app-<platform>`.
+
 ### Changed
 - Log relay uploads now deduplicate identical file contents with SHA3-256 against
   the active `LOGS` branch and within each request. A branch-side hash index avoids
@@ -30,6 +39,31 @@ conversion cache version, and cached conversions are redone automatically.
   upload, which also took one request per stored log. Logs stored before the
   index existed are not deduplicated against; they leave with the 30-day
   retention.
+
+## [0.15.31] - 2026-11-18
+
+Not tried on a headset.
+
+### Fixed
+- Geometry effects drawn twice in each eye, z-fighting (Aether). Since
+  0.15.12, every geometry shader ran a second time to draw a copy into the
+  right eye, for drivers that run geometry shaders for the left eye only.
+  Drivers with EXT_multiview_tessellation_geometry_shader already run them
+  once per eye, so on those each eye got its own copy plus the other eye's,
+  in slightly different places on top of each other: one looked right, the
+  other wrong, and they fought. The copy now only happens where the driver
+  lacks that extension; elsewhere each eye draws its own once. Converted
+  bundles are redone once (conversion version 29).
+- Rendered replays drew no geometry or tessellation shaders (Yoi Okashi's
+  grass, for example). The Replay mod's render camera draws one view into a
+  flat texture, where the Separate-Eye Renderer stands down ("expected a
+  stereo two-layer texture array"), so those materials kept shaders whose
+  geometry or tessellation stages could not run there. The render camera now
+  draws with the renderer's single-camera shader copies, as map-authored
+  texture cameras already did. Those copies keep geometry shaders, and they
+  now also translate tessellation wherever both eyes' copies did (Yoi
+  Okashi: yes; Lifelike's grass: not yet, see 0.15.30). Needs the
+  Separate-Eye Renderer on; the log says which way a replay render went.
 
 ## [0.15.30] - 2026-11-17
 
