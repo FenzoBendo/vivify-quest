@@ -11,6 +11,15 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+### Added
+- Vivify Quest Converter, a desktop app for Windows, Linux and macOS
+  (`converter/gui`). It is the command-line converter in a window: drop PC
+  bundles or map folders on it, then convert them all in turn. Each bundle's
+  report, and what it was built for, is shown beside the queue. The options
+  are the CLI's, with explanations. It uses the same library, and its output
+  is byte-identical to `vivify-convert`'s. The Converter library workflow
+  builds it as `VivifyQuestConverter-app-<platform>`.
+
 ### Changed
 - Log relay uploads now deduplicate identical file contents with SHA3-256 against
   the active `LOGS` branch and within each request. A branch-side hash index avoids
