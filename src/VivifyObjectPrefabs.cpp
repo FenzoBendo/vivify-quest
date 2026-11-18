@@ -2015,6 +2015,13 @@ void Runtime::ApplySaberTrailVisuals(GlobalNamespace::SaberModelController* smc,
       UnityEngine::Object::Destroy(trailObject);
       continue;
     }
+    // The Separate-Eye Renderer draws only renderers it knows about with its
+    // single-eye shaders; an unknown one keeps its two-eye shader, which
+    // draws nothing in an eye camera. Map trails were never registered, so
+    // they vanished whenever a geometry effect put the scene on the per-eye
+    // path (0.15.32). Sabers and note replacements already are (0.15.35).
+    SeparateEye::RememberRenderers(trailObject);
+    RegisterSingleViewMaterials(trailObject);
     replacement.spawnedObjects.emplace_back(trailObject);
     replacement.followedTrails.emplace_back(followedTrail);
   }

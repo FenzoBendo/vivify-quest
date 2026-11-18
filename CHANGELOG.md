@@ -40,6 +40,43 @@ conversion cache version, and cached conversions are redone automatically.
   index existed are not deduplicated against; they leave with the 30-day
   retention.
 
+## [0.15.35] - 2026-11-18
+
+Not tried on a headset.
+
+### Fixed
+- Aether's refractive glass rocks (Swifter/GlassTerrain) went flat and
+  lagged, and its shockwaves (Swifter/VFX/ShockwaveParticle) became a tilted
+  square showing the view upside down, once 0.15.32 started drawing geometry
+  effects through the Separate-Eye Renderer. Both use a named GrabPass
+  (`_GrabTexture1`), which Unity fills once per frame for the first object
+  that uses the name, whatever camera draws it. The left-eye camera draws
+  first, so the right eye refracted the left eye's picture, and the main
+  camera's two-eye copy was a frame old. Each renamed shader copy now
+  grabs into a texture of its own (`_GrabTexture1__VivifyEye0`, `...Eye1`,
+  `...Mono`), so every camera refracts its own picture. Converted copies are
+  redone once (conversion version 30 -> 31).
+- Map saber trails vanished in every map while a geometry effect was on
+  screen. The Separate-Eye Renderer draws each eye with single-eye shader
+  copies, but only for renderers it knows about, and map trails were never
+  registered: they kept their two-eye shader, which draws nothing in an eye
+  camera. Trails are now registered like map sabers and note replacements.
+
+### Notes
+- 42-flux has "Use Windows Bundle For This Map" turned on, so Vivify converts
+  its PC build instead of loading Aeroluna's own Quest build (which it
+  downloaded). Its renderer keeps the normal frame on this map ("map uses
+  mid-frame effects"), so the sabers, black frames, arrow-only notes and
+  one-eyed shaders reported there come from the converted PC build, not the
+  Separate-Eye Renderer. Turning the setting off for 42-flux uses the Quest
+  build.
+
+### Known
+- Get Your Wish: a grey stand-in in front of the window at 55 s.
+- Lifelike: the runway text draws as something transparent.
+- Lifelike and Luminescent: water reflections are detached and tilt with
+  the view.
+
 ## [0.15.34] - 2026-11-18
 
 Not tried on a headset.
