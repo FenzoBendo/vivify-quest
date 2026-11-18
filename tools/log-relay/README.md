@@ -2,11 +2,11 @@
 
 The relay receives the mod's diagnostic uploads and stores unique log contents on the
 repository's `LOGS` branch. It also hosts a responsive dashboard for browsing
-those uploads. Before committing, it hashes each file with SHA3-256 and skips content already
+those uploads. Before committing, it hashes each file with SHA-256 (Web Crypto) and skips content already
 present on the active branch, including duplicates within one request. A compact
 `.vivify-sha3-index.json` is stored on the branch so normal uploads do not need to
-re-download every historical log. The first upload after upgrading backfills the index
-from existing logs. Mixed uploads store only their new files; fully duplicate uploads create a small metadata commit to persist cumulative savings, without adding duplicate log blobs. Both retention tasks remove expired entries from the index. The index also tracks cumulative duplicate bytes/files avoided and the last-seen time for each canonical blob, so recent duplicate uploads remain protected during emergency cleanup.
+re-download every historical log. Logs stored before the index existed are not
+backfilled (that took one GitHub request per stored log in a single upload). Mixed uploads store only their new files; fully duplicate uploads create a small metadata commit to persist cumulative savings, without adding duplicate log blobs. Both retention tasks remove expired entries from the index. The index also tracks cumulative duplicate bytes/files avoided and the last-seen time for each canonical blob, so recent duplicate uploads remain protected during emergency cleanup.
 
 ## Dashboard (1.1.0)
 
@@ -14,7 +14,7 @@ The dashboard is a Vite + TypeScript application with a hand-built Material 3
 Expressive-inspired interface. It includes:
 
 - A live upload counter and summary of received files and stored data.
-- Cumulative storage avoided by SHA3 deduplication, with duplicate-file counts.
+- Cumulative storage avoided by deduplication, with duplicate-file counts.
 - A 14-day upload traffic graph.
 - A searchable upload list with newest-first, largest-first, and smallest-first sorting by total upload size.
 - An in-browser plain-text log viewer.
@@ -22,7 +22,7 @@ Expressive-inspired interface. It includes:
 - Automatic refresh every 15 seconds.
 
 The dashboard API exposes:
-- `GET /api/health` for relay status, aggregate counts, and SHA3 deduplication savings.
+- `GET /api/health` for relay status, aggregate counts, and deduplication savings.
 - `GET /api/logs` to list uploads, with optional `?date=YYYY-MM-DD` and
   `?upload=<upload-id>` filters.
 - `GET /api/log?path=<encoded-repository-path>` to read one log as plain text.
@@ -39,7 +39,7 @@ more than 30 days old from the active `LOGS` branch. In addition, the relay
 checks active-branch log storage after every accepted upload and during
 scheduled maintenance. When it exceeds `MAX_LOG_STORAGE_BYTES` (default
 450 MiB), it removes all log blobs older than the preceding two hours. The
-SHA3 index is updated in the same operation. A blob whose content was
+dedupe index is updated in the same operation. A blob whose content was
 deduplicated from a recent upload is protected using its last-seen timestamp.
 The emergency cleanup writes a fresh root commit to the `LOGS` branch, so
 deleted log history is no longer reachable from that branch and can eventually

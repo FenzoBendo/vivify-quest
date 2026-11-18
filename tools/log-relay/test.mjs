@@ -1,6 +1,6 @@
 // Tests worker.js against a fake GitHub API: node test.mjs
 import { createHash } from "node:crypto";
-import worker, { sha3_256 } from "./worker.js";
+import worker, { contentHash } from "./worker.js";
 let refSha = null, commits = {}, trees = {}, blobs = {}, n = 0, raceOnce = false, calls = [], authHeaders = [];
 globalThis.fetch = async (url, init) => {
   const path = url.replace("https://api.github.com/repos/trail-b1az3r/vivify-quest", "");
@@ -47,11 +47,11 @@ const env = { GITHUB_TOKEN: "x" };
 const post = (obj) => worker.fetch(new Request("https://relay/api/upload", { method: "POST", body: JSON.stringify(obj) }), env);
 const good = { version: "0.15.20", lite: false, upload: "0123456789abcdef", files: [{ name: "VivifyReport.txt", from: 0, text: "hello" }, { name: "vivify_global-p4.txt", from: 10, text: "log" }] };
 let fails = 0; const check = (what, ok) => { console.log((ok ? "ok   " : "FAIL ") + what); if (!ok) fails++; };
-check("SHA3-256 matches the FIPS 202 abc test vector", Buffer.from(sha3_256(new TextEncoder().encode("abc"))).toString("hex") === "3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532");
+check("content hash is SHA-256 of the UTF-8 text (FIPS 180 abc vector)", (await contentHash("abc")) === "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
 let r = await post(good); let t = await r.text();
 check("first upload creates the orphan branch", r.status === 200 && refSha && commits[refSha].parents.length === 0 && calls.includes("POST /git/refs"));
 const firstTree = trees[commits[refSha].tree.sha];
-check("files land in logs/<date>/<time>_<version>_<id>/ and persist the SHA3 index", firstTree.tree.filter(e => e.path.startsWith("logs/")).every(e => /^logs\/\d{4}-\d\d-\d\d\/\d{6}_0\.15\.20_0123456789abcdef\//.test(e.path)) && firstTree.tree.some(e => e.path === ".vivify-sha3-index.json") && !firstTree.base_tree);
+check("files land in logs/<date>/<time>_<version>_<id>/ and persist the dedupe index", firstTree.tree.filter(e => e.path.startsWith("logs/")).every(e => /^logs\/\d{4}-\d\d-\d\d\/\d{6}_0\.15\.20_0123456789abcdef\//.test(e.path)) && firstTree.tree.some(e => e.path === ".vivify-sha3-index.json") && !firstTree.base_tree);
 const first = refSha;
 r = await worker.fetch(new Request("https://relay/api/logs"), env);
 const index = await r.json();
@@ -82,7 +82,7 @@ r = await post({ ...good, upload: "1123456789abcdef" });
 check("identical files are deduplicated and savings are persisted", r.status === 200 && (await r.text()).includes("deduplicated 2 file(s)") && refSha !== beforeDuplicate);
 beforeDuplicate = refSha;
 const afterDedupe = await (await worker.fetch(new Request("https://relay/api/logs"), env)).json();
-check("dashboard API reports cumulative SHA3 storage savings", afterDedupe.dedupeSavedBytes === 8 && afterDedupe.dedupeSavedFiles === 2);
+check("dashboard API reports cumulative dedupe storage savings", afterDedupe.dedupeSavedBytes === 8 && afterDedupe.dedupeSavedFiles === 2);
 r = await post({ ...good, upload: "2123456789abcdef", files: [{ name: "VivifyReport.txt", text: "hello" }, { name: "VivifyCrash.txt", text: "new crash detail" }] });
 check("mixed uploads store only files with new content", r.status === 200 && (await r.text()).includes("stored 1, deduplicated 1") && commits[refSha].parents[0] === beforeDuplicate);
 const beforeWithinBatch = refSha;
