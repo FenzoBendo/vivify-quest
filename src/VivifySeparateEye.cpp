@@ -689,10 +689,19 @@ bool CanUseNativeMaterial(UnityEngine::Material* source) {
   if (cached != nativeChecks.end() && cached->second.epoch == nativeCheckEpoch) return cached->second.compatible;
   NativeMaterialConditions material;
   material.completeStageInfo = completeStageInfo; material.rememberedSource = true;
-  // Prefer upstream's native geometry implementation. Keep our scene path
-  // only when its validated tessellation pair adds the requested hull/domain
-  // stages; untranslated tessellation alone cannot justify extra scene draws.
-  material.sceneEyeTessellation = activeSceneEyeTessellationNames.contains(original->second.shader);
+  // The scene path draws a material when its validated tessellation pair adds
+  // the requested hull/domain stages (untranslated tessellation alone cannot
+  // justify extra scene draws), and -- since 0.15.31 -- whenever its shader
+  // has a geometry stage. The native two-eye program cannot give a geometry
+  // stage a correct second eye on the Quest: without the right-eye copy one
+  // eye drew the other's view, and with it (0.15.12) each eye drew both
+  // views on top of each other, whether or not the driver reported per-view
+  // geometry (Aether's wireframes stayed doubled and z-fought in 0.15.31).
+  // The scene eyes run it single-view, once per eye, as the PC does.
+  std::string const& sourceName = original->second.shader;
+  bool const geometryStage = separateEyeShaderNames.contains(sourceName) &&
+      std::find(tessellationShaderNames.begin(), tessellationShaderNames.end(), sourceName) == tessellationShaderNames.end();
+  material.sceneEyeTessellation = activeSceneEyeTessellationNames.contains(sourceName) || geometryStage;
   material.supported = Alive(shader) && shader->get_isSupported();
   material.sourceShaderMatches = Alive(shader) && shader == original->second.sourceShader.ptr() &&
       MaterialSpecialization::Canonical(std::string(shader->get_name())) == original->second.shader;
