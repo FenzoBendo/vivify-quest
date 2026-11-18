@@ -1389,10 +1389,35 @@ void Runtime::RefreshSlowProbes() {
   }
 }
 
+// The camera the Replay mod renders a replay with: VivifyMainCamera() picks it
+// out while a replay renders, and it is never Camera.main.
+bool Runtime::IsReplayRenderCamera(UnityEngine::Camera* camera) {
+  if (!IsAlive(camera) || !GetReplayRendering()) return false;
+  auto* main = UnityEngine::Camera::get_main().unsafePtr();
+  return camera != main && camera == VivifyMainCamera();
+}
+
 // Called for every camera Unity renders, the hidden ones a reflection probe
 // uses included: those draw with the map's single-view shaders.
 void Runtime::OnAnyCameraPreCull(UnityEngine::Camera* camera) {
   PullHeadsetHud(camera);
+  // The Replay mod's render camera draws one view into a flat texture, where
+  // the separate-eye renderer cannot run: geometry and tessellation shaders
+  // drew nothing in rendered replays. It draws with the mono donor instead,
+  // as map-authored texture cameras do: full geometry, and tessellation
+  // where both scene eyes translated it (0.15.31).
+  if (_currentBeatmapData != nullptr && IsReplayRenderCamera(camera)) {
+    bool const scoped = SeparateEye::BeginTextureCamera(camera, camera);
+    if (scoped != _replayCameraScoped || !_replayCameraLogged) {
+      _replayCameraLogged = true;
+      PaperLogger.info("Vivify replay render: {}", scoped
+          ? "drawing the map with the single-camera shader copies (geometry and tessellation kept)"
+          : "the single-camera shader copies are not available (Separate-Eye Renderer off or not ready); "
+            "geometry and tessellation shaders may not draw");
+    }
+    _replayCameraScoped = scoped;
+    return;
+  }
   if (_currentBeatmapData == nullptr || !GetSingleViewMapCameras()) return;
   if (!IsAlive(camera) || camera->get_cameraType().value__ != 16) return;  // CameraType.Reflection
   // Hidden probe cameras have no SingleViewCameraShaders component. Use the
@@ -1404,6 +1429,11 @@ void Runtime::OnAnyCameraPreCull(UnityEngine::Camera* camera) {
 }
 
 void Runtime::OnAnyCameraPostRender(UnityEngine::Camera* camera) {
+  if (IsAlive(camera) && _replayCameraScoped && IsReplayRenderCamera(camera)) {
+    SeparateEye::EndTextureCamera(camera);
+    _replayCameraScoped = false;
+    return;
+  }
   if (!IsAlive(camera) || camera->get_cameraType().value__ != 16) return;
   SeparateEye::EndTextureCamera(camera);
   if (!_probeCameraRendering) return;

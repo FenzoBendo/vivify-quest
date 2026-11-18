@@ -2237,8 +2237,16 @@ ShaderConversion ConvertShadersToGles(std::string const& sourcePath,
                                       std::string const& destPath,
                                       ShaderConversionOptions const& options) {
   ShaderConversion conversion;
-  if (options.uniformTriangleTessellation && (!options.singleViewOnly || options.singleViewStereoEye < 0 ||
-      options.singleViewStereoEye > 1 || !options.namespaceEyeShaders || options.singleViewBlit ||
+  // Tessellation is translated for isolated single-view scene donors: the
+  // two explicit eyes, and (0.15.31) the mono donor that draws map-authored
+  // texture cameras and the Replay mod's render camera, which uses the
+  // camera's own matrices and nothing eye-specific.
+  bool const tessellationEyeDonor = options.singleViewStereoEye >= 0 && options.singleViewStereoEye <= 1 &&
+                                    options.namespaceEyeShaders;
+  bool const tessellationMonoDonor = options.singleViewStereoEye < 0 && options.namespaceSingleViewShaders &&
+                                     !options.namespaceEyeShaders;
+  if (options.uniformTriangleTessellation && (!options.singleViewOnly ||
+      !(tessellationEyeDonor || tessellationMonoDonor) || options.singleViewBlit ||
       options.nativePerspectiveDonor || options.dropGeometryStages || options.dropUntranslatableGeometry)) {
     conversion.status = Status::Corrupt;
     conversion.message = "uniform triangle tessellation requires an isolated single-view scene-eye donor with complete geometry";

@@ -54,6 +54,16 @@ Not tried on a headset.
   other wrong, and they fought. The copy now only happens where the driver
   lacks that extension; elsewhere each eye draws its own once. Converted
   bundles are redone once (conversion version 29).
+- Rendered replays drew no geometry or tessellation shaders (Yoi Okashi's
+  grass, for example). The Replay mod's render camera draws one view into a
+  flat texture, where the Separate-Eye Renderer stands down ("expected a
+  stereo two-layer texture array"), so those materials kept shaders whose
+  geometry or tessellation stages could not run there. The render camera now
+  draws with the renderer's single-camera shader copies, as map-authored
+  texture cameras already did. Those copies keep geometry shaders, and they
+  now also translate tessellation wherever both eyes' copies did (Yoi
+  Okashi: yes; Lifelike's grass: not yet, see 0.15.30). Needs the
+  Separate-Eye Renderer on; the log says which way a replay render went.
 
 ## [0.15.30] - 2026-11-17
 
