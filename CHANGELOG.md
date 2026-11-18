@@ -40,6 +40,19 @@ conversion cache version, and cached conversions are redone automatically.
   index existed are not deduplicated against; they leave with the 30-day
   retention.
 
+## [0.15.34] - 2026-11-18
+
+Not tried on a headset.
+
+### Fixed
+- A crash when a screen effect started on maps whose effects run once per
+  eye (Aether's bokeh at 2 s, and two other levels in the 0.15.33 logs). All
+  three crash reports point to the same place: the per-eye diagnostic added
+  in 0.15.30 ("Vivify stereo effect eyes"), which crashed inside Unity while
+  reading its small sample image back. The diagnostic is removed. It had
+  already answered its question (Aether's effects come out right in both
+  eyes).
+
 ## [0.15.33] - 2026-11-18
 
 Not tried on a headset.

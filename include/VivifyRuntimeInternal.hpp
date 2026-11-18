@@ -656,10 +656,6 @@ private:
   bool EnsureBlitGuardTextures();
   bool BlitGuardDue(std::vector<UnityEngine::Material*> const& materials);
   void BlitGuardEvaluate(std::vector<UnityEngine::Material*> const& materials, UnityEngine::RenderTexture* src);
-  // Per-eye check of the explicit-eye screen effects (0.15.30): each eye's
-  // picture going in and coming out, once per set of effects per level.
-  void StereoEyeCheck(UnityEngine::RenderTexture* src, UnityEngine::RenderTexture* stereo);
-  std::set<std::string> _stereoEyeChecked;
   // The Replay mod's render camera draws with the mono donor (0.15.31).
   bool IsReplayRenderCamera(UnityEngine::Camera* camera);
   bool _replayCameraScoped = false;
