@@ -40,6 +40,29 @@ conversion cache version, and cached conversions are redone automatically.
   index existed are not deduplicated against; they leave with the 30-day
   retention.
 
+## [0.15.38] - 2026-11-19
+
+Not tried on a headset.
+
+### Fixed
+- Aether ghosted from 1:48 to about 2:21, when the rift appears. Its Triangle
+  Explosion is a geometry effect, so since 0.15.32 the Separate-Eye Renderer
+  draws the scene once per eye there, and together with the glass rocks, the
+  star and the bokeh blur the game held 33-37 fps (300 frames every 8-9 s in
+  the log). The headset then shows each frame twice, shifted, and everything
+  that moves ghosts. The eye images were always full size (1680x1760). Now,
+  while the eyes are drawn separately and frames stay slow against the best
+  the level has managed, the eye images step down 10% at a time, after a
+  second of slow frames, to 50% at least. They step back up after 5 s at full
+  speed, and a step up that turns slow again within 3 s stops further steps
+  up for that level. Each change is logged ("Vivify separate-eye resolution:
+  ..."). The picture is softer while it is lowered.
+
+### Added
+- "Separate Eyes Follow Effect Resolution" (Performance, off by default): the
+  Separate-Eye Renderer's eye images use the Effect Resolution % instead of the
+  automatic size.
+
 ## [0.15.37] - 2026-11-19
 
 Diagnostics only; nothing that draws is changed. Not tried on a headset.

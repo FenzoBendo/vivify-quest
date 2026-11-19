@@ -83,6 +83,7 @@ constexpr std::string_view kMapReflectionProbesConfigKey = "mapReflectionProbesV
 constexpr std::string_view kFullReflectionProbesConfigKey = "fullReflectionProbes";
 constexpr std::string_view kSingleViewMapCamerasConfigKey = "singleViewMapCameras";
 constexpr std::string_view kAutoEffectResolutionConfigKey = "autoEffectResolution";
+constexpr std::string_view kSeparateEyeFollowsEffectResolutionConfigKey = "separateEyeFollowsEffectResolution";
 constexpr std::string_view kCrashRecoveryConfigKey = "crashRecovery";
 // On by default from 0.15.19 (new key): it acts only while Replay renders.
 constexpr std::string_view kReplayRenderModeConfigKey = "replayRenderModeV2";
@@ -221,6 +222,27 @@ struct AutoEffectState {
   double fastFor = 0.0;      // how long it has been close to best
   double elapsed = 0.0;
 } gAutoEffect;
+
+// Separate-eye resolution (0.15.38). The Separate-Eye Renderer draws the scene
+// once per eye; with Aether's ambient section (geometry effect, glass rocks,
+// a bokeh blur) that held the game at 33-37 fps, and the headset showing each
+// frame twice made everything that moved ghost. Automatic (the default): while
+// the eyes are drawn separately and frames stay slow against the best this
+// level has managed, the eye images step down 10% at a time (to 50% at least),
+// and back up after a stretch at full speed. A raise that is slow again within
+// 3 s ends the raising for the level, so it does not see-saw. Off by default,
+// "Separate Eyes Follow Effect Resolution" uses the Effect Resolution % instead.
+bool gSeparateEyeFollowsEffectResolution = false;
+std::atomic<int> gSeparateEyePercent{100};
+struct SeparateEyeAutoState {
+  double average = 0.0;
+  double best = 0.0;
+  double slowFor = 0.0;
+  double fastFor = 0.0;
+  double elapsed = 0.0;
+  double sinceRaise = 1e9;
+  int ceiling = 100;
+} gSeparateEyeAuto;
 bool gCrashRecovery = true;
 std::atomic<bool> gRecoveryModeActive{false};
 bool gReplayRenderMode = true;
@@ -660,10 +682,15 @@ char const* SettingHint(std::u16string_view label) {
        "bundle. Try it when a map's Quest version looks wrong or is missing things."},
       {u"Effect Resolution %",
        "Draws full-screen map effects at this share of the eye resolution, then scales them up. Lower is "
-       "faster and blurrier; 50% is a quarter of the work. The separate-eye prototype uses 100%."},
+       "faster and blurrier; 50% is a quarter of the work. The Separate-Eye Renderer draws effects at 100%, and "
+       "uses this for its eye images only with Separate Eyes Follow Effect Resolution on."},
       {u"Auto Effect Resolution",
        "Lowers the effect resolution by itself while a map runs slowly, and raises it again when there is "
        "room. The separate-eye prototype keeps effects at 100% and ignores automatic scaling."},
+      {u"Separate Eyes Follow Effect Resolution",
+       "Separate-Eye Renderer only. Off (default): while a map is drawn once per eye and runs slowly, the eye "
+       "images get smaller by themselves (down to 50%) and grow back when there is room, so moving things do "
+       "not ghost. On: the eye images always use the Effect Resolution % above."},
       {u"Offscreen Culling (can hide objects)",
        "Stops animating map objects you are not looking at, to save time. Can leave some objects hidden, so "
        "turn it off if things go missing."},
@@ -1185,6 +1212,11 @@ void RegisterModSettings() {
           // is room (0.15.3).
           toggle(u"Auto Effect Resolution", gAutoEffectResolution, [](bool value) {
             SetBoolConfigValue(kAutoEffectResolutionConfigKey, value, gAutoEffectResolution);
+          });
+          // Separate-Eye Renderer image size: automatic, or this (0.15.38).
+          toggle(u"Separate Eyes Follow Effect Resolution", gSeparateEyeFollowsEffectResolution, [](bool value) {
+            SetBoolConfigValue(kSeparateEyeFollowsEffectResolutionConfigKey, value,
+                               gSeparateEyeFollowsEffectResolution);
           });
           toggle(u"Offscreen Culling (can hide objects)", gOffscreenCulling,
                  [](bool value) { SetBoolConfigValue(kOffscreenCullingConfigKey, value, gOffscreenCulling); });
@@ -1851,6 +1883,57 @@ int GetFarCullingDistance() {
 void ResetAutoEffectResolution() {
   gAutoEffect = AutoEffectState{};
   gAutoEffectPercent.store(100);
+  gSeparateEyeAuto = SeparateEyeAutoState{};
+  gSeparateEyePercent.store(100);
+}
+
+void ReportSeparateEyeFrame(float seconds) {
+  if (kLiteBuild || !GetExperimentalSeparateEye() || gSeparateEyeFollowsEffectResolution) return;
+  if (!(seconds > 0.0f) || seconds > 0.5f) return;  // a pause or a stall, not pacing
+  auto& s = gSeparateEyeAuto;
+  s.elapsed += seconds;
+  s.sinceRaise += seconds;
+  s.average = s.average == 0.0 ? seconds : s.average * 0.95 + seconds * 0.05;
+  if (s.elapsed < 2.0) return;  // let the average settle after the level starts
+  // The best includes frames drawn the normal way: that is the speed to keep.
+  if (s.best == 0.0 || s.average < s.best) s.best = s.average;
+  if (!Vivify::SeparateEye::RenderingSeparately()) {
+    s.slowFor = s.fastFor = 0.0;
+    return;
+  }
+  int percent = gSeparateEyePercent.load();
+  if (s.average > s.best * 1.3) {
+    s.slowFor += seconds;
+    s.fastFor = 0.0;
+    if (s.slowFor >= 1.0 && percent > 50) {
+      if (s.sinceRaise < 3.0) s.ceiling = std::max(50, percent - 10);
+      percent = std::max(50, percent - 10);
+      gSeparateEyePercent.store(percent);
+      s.slowFor = 0.0;
+      PaperLogger.info("Vivify separate-eye resolution: frames at {:.1f} ms against a best of {:.1f} ms; eye "
+                       "images down to {}%", s.average * 1000.0, s.best * 1000.0, percent);
+    }
+  } else if (s.average < s.best * 1.1) {
+    s.fastFor += seconds;
+    s.slowFor = 0.0;
+    if (s.fastFor >= 5.0 && percent < std::min(100, s.ceiling)) {
+      percent = std::min(std::min(100, s.ceiling), percent + 10);
+      gSeparateEyePercent.store(percent);
+      s.fastFor = 0.0;
+      s.sinceRaise = 0.0;
+      PaperLogger.info("Vivify separate-eye resolution: frames back to {:.1f} ms; eye images up to {}%",
+                       s.average * 1000.0, percent);
+    }
+  } else {
+    s.slowFor = s.fastFor = 0.0;
+  }
+}
+
+int GetSeparateEyeResolutionPercent() {
+  if (kLiteBuild) return 100;
+  int percent = gSeparateEyeFollowsEffectResolution ? std::clamp(gEffectResolution, 25, 100)
+                                                    : std::clamp(gSeparateEyePercent.load(), 50, 100);
+  return GetRecoveryModeActive() ? std::min(percent, 50) : percent;
 }
 
 void ReportGameplayFrame(float seconds) {
@@ -1944,6 +2027,8 @@ void EnsureConfigDefaults() {
   needsWrite |= EnsureBoolConfigValue(kFullReflectionProbesConfigKey, false, gFullReflectionProbes);
   needsWrite |= EnsureBoolConfigValue(kSingleViewMapCamerasConfigKey, true, gSingleViewMapCameras);
   needsWrite |= EnsureBoolConfigValue(kAutoEffectResolutionConfigKey, true, gAutoEffectResolution);
+  needsWrite |= EnsureBoolConfigValue(kSeparateEyeFollowsEffectResolutionConfigKey, false,
+                                      gSeparateEyeFollowsEffectResolution);
   needsWrite |= EnsureBoolConfigValue(kCrashRecoveryConfigKey, true, gCrashRecovery);
   needsWrite |= EnsureBoolConfigValue(kReplayRenderModeConfigKey, true, gReplayRenderMode);
   needsWrite |= EnsureBoolConfigValue(kBlitFixConfigKey, false, gBlitFix);

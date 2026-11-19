@@ -34,6 +34,8 @@ bool BeginTextureCamera(void const* owner, UnityEngine::Camera* camera);
 void EndTextureCamera(void const* owner);
 UnityEngine::Material* BlitMaterial(UnityEngine::Material* source);
 bool IsRenderingEye();
+// True while the scene is being drawn once per eye (the separate route).
+bool RenderingSeparately();
 // Process slices of an existing multiview image without rendering a scene.
 bool BeginBlitEye(UnityEngine::Camera* camera, int eye);
 void EndBlitEye();

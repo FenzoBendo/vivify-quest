@@ -131,6 +131,9 @@ bool captureComplete = false, captureNeedsDepth = false;
 SafePtr<CameraApplier> imageEffects;
 std::unordered_map<UnityEngine::Material*, UnityEngine::Material*> cloneSources;
 int width = 0, height = 0, format = -1;
+// The size of the image the eyes are presented into, and the percentage of it
+// the eye targets were made at (0.15.38). See GetSeparateEyeResolutionPercent.
+int sourceWidth = 0, sourceHeight = 0, targetPercent = 100;
 std::list<SafePtr<UnityEngine::Renderer>> sceneRenderers;
 std::unordered_set<UnityEngine::Renderer*> rendererIndex;
 std::list<SafePtr<UnityEngine::Behaviour>> sceneProjectors;
@@ -505,12 +508,25 @@ void UnwindTextureCameras() {
 
 void EnsureTargets(UnityEngine::RenderTextureDescriptor descriptor) {
   int const nextFormat = descriptor.get_graphicsFormat().value__;
-  if (width == descriptor.get_width() && height == descriptor.get_height() && format == nextFormat &&
+  // Drawing every eye's scene twice can halve the frame rate (Aether's
+  // ambient section ran at 33-37 fps), and the headset then shows each frame
+  // twice, shifted: moving things ghost. The eye targets can be smaller than
+  // the image they are presented into; presentation already scales.
+  int const percent = std::clamp(GetSeparateEyeResolutionPercent(), 25, 100);
+  int const nextWidth = std::max(16, (descriptor.get_width() * percent + 50) / 100);
+  int const nextHeight = std::max(16, (descriptor.get_height() * percent + 50) / 100);
+  sourceWidth = descriptor.get_width(); sourceHeight = descriptor.get_height();
+  if (width == nextWidth && height == nextHeight && format == nextFormat &&
       colors[0] && colors[1] && colors[0]->IsCreated() && colors[1]->IsCreated()) return;
   for (auto& texture : colors) { if (texture) texture->Release(); Destroy(texture); }
   if (staging) staging->Release();
   Destroy(staging);
-  width = descriptor.get_width(); height = descriptor.get_height(); format = nextFormat;
+  if (percent != targetPercent || width == 0)
+    PaperLogger.info("Vivify separate-eye: eye images at {}% ({}x{} of {}x{})", percent, nextWidth, nextHeight,
+                     descriptor.get_width(), descriptor.get_height());
+  targetPercent = percent;
+  width = nextWidth; height = nextHeight; format = nextFormat;
+  descriptor.set_width(nextWidth); descriptor.set_height(nextHeight);
   descriptor.set_msaaSamples(1); descriptor.set_depthBufferBits(0);
   descriptor.set_useMipMap(false); descriptor.set_autoGenerateMips(false);
   descriptor.set_useDynamicScale(false); descriptor.set_vrUsage(UnityEngine::VRTextureUsage::None);
@@ -714,6 +730,7 @@ UnityEngine::Material* BlitMaterial(UnityEngine::Material* source) {
   return eye >= 0 && source ? CopyMaterial(source, eye + 3) : source;
 }
 bool IsRenderingEye() { return (rendering && captureEye >= 0) || blitEye >= 0; }
+bool RenderingSeparately() { return GetExperimentalSeparateEye() && sceneRoute == SceneRoute::Separate; }
 bool BeginBlitEye(UnityEngine::Camera* camera, int eye) {
   auto& runtime = Runtime::Instance();
   if (eye < 0 || eye > 1 || rendering || blitEye >= 0 || !GetExperimentalSeparateEye() || failed ||
@@ -779,7 +796,7 @@ void Reset(bool unloadDonors) {
   for (auto& texture : colors) { if (texture) texture->Release(); Destroy(texture); }
   if (staging) staging->Release();
   Destroy(staging);
-  width = height = 0; format = -1;
+  width = height = 0; format = -1; sourceWidth = sourceHeight = 0; targetPercent = 100;
   if (msaaOverridden) {
     UnityEngine::QualitySettings::set_antiAliasing(msaaRestoreValue);
     PaperLogger.info("Vivify separate-eye: anti-aliasing restored ({})", msaaRestoreValue);
@@ -1426,7 +1443,9 @@ bool TryRender(UnityEngine::Camera* main, UnityEngine::RenderTexture* source, Ca
     for (int eye = 0; eye != 2; ++eye)
       UnityEngine::Graphics::CopyTexture(colors[eye].ptr(), 0, 0, staging.ptr(), eye, 0);
     Runtime::Instance().ApplyBlits(staging.ptr(), source, "_Main", -1);
-    if (actual.get_width() != expected.get_width() || actual.get_height() != expected.get_height() ||
+    // The eye targets may be deliberately smaller (EnsureTargets); compare
+    // against the size they were made for.
+    if (actual.get_width() != sourceWidth || actual.get_height() != sourceHeight ||
         actual.get_graphicsFormat() != expected.get_graphicsFormat()) {
       LogRejection("late image descriptor change; presenting scaled completed frame and relearning targets");
     }

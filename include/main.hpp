@@ -68,6 +68,9 @@ bool GetSingleViewMapCameras();
 // Auto Effect Resolution (0.15.3): fed every gameplay frame's duration, reset
 // when a level starts.
 void ReportGameplayFrame(float seconds);
+// Every unpaused gameplay frame, effect or not: the Separate-Eye Renderer's
+// automatic eye-image size (0.15.38).
+void ReportSeparateEyeFrame(float seconds);
 void ResetAutoEffectResolution();
 // Crash recovery (0.15.2): the setting, and whether the level now playing is
 // in recovery mode (caps the effect resolution at 50%).
@@ -111,6 +114,9 @@ bool GetUsePcShadersForEmptyShaders();
 // Fraction (0.25-1) of the eye resolution that map post-process effects render
 // at (0.14.20); 1 renders them at full resolution, as before.
 float GetEffectResolutionScale();
+// The Separate-Eye Renderer's eye images, as a percentage of the eye
+// resolution: automatic, or the Effect Resolution % (0.15.38).
+int GetSeparateEyeResolutionPercent();
 int GetEffectResolutionPercent();
 // Culling (0.14.23): offscreen animators in a map's prefabs skip their update;
 // the main camera draws nothing beyond GetFarCullingDistance() metres (0: off).
