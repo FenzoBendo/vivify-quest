@@ -40,6 +40,22 @@ conversion cache version, and cached conversions are redone automatically.
   index existed are not deduplicated against; they leave with the 30-day
   retention.
 
+## [0.15.39] - 2026-11-19
+
+Diagnostics only. Not tried on a headset.
+
+### Added
+- Separate-eye grab check: while the scene is drawn once per eye, every 2 s
+  each eye logs what its own copy of each GrabPass texture holds right after
+  it drew (`<name>__VivifyEye<N>`: which texture, its size, and whether it is
+  that eye's own render target). Aether's glass rocks (Swifter/GlassTerrain,
+  GrabPass "_GrabTexture1") smear and ghost only while the rift (a geometry
+  effect) is on screen, which is exactly when the eyes are drawn separately;
+  with the rift gone the rocks are fine. The rift itself reads no grab, there
+  is no mirror in the map, and the game's bloom pre-pass draws only lights, so
+  this records which of a stale grab or a grab read while being drawn into it
+  is.
+
 ## [0.15.38] - 2026-11-19
 
 Not tried on a headset.

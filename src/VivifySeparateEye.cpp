@@ -506,6 +506,40 @@ void UnwindTextureCameras() {
   }
 }
 
+// What each eye's renamed GrabPass texture holds right after that eye drew
+// (0.15.39), every 2 s while the eyes are drawn separately. Aether's glass
+// rocks ghost and smear only on this route; the map's grab is named
+// ("_GrabTexture1"), Unity grabs a name once per frame, and each eye's copy of
+// the shader grabs "<name>__VivifyEye<N>". Whether that texture is fresh this
+// frame (a new texture each frame, or the same one kept), its size, and
+// whether it is the eye's own target tell a stale grab from one read while
+// being drawn into.
+std::chrono::steady_clock::time_point lastGrabLog[2];
+void LogEyeGrabs(int eye) {
+  auto const now = std::chrono::steady_clock::now();
+  if (eye < 0 || eye > 1 || now - lastGrabLog[eye] < std::chrono::seconds(2)) return;
+  lastGrabLog[eye] = now;
+  auto names = Runtime::Instance().GrabTextureNames();
+  int logged = 0;
+  for (auto const& base : names) {
+    if (++logged > 4) break;
+    std::string const name = base + "__VivifyEye" + std::to_string(eye);
+    auto* texture = UnityEngine::Shader::GetGlobalTexture(StringW(name)).unsafePtr();
+    if (!Alive(texture)) {
+      PaperLogger.info("Vivify separate-eye {} grab '{}' frame {}: nothing bound", eye, name,
+                       UnityEngine::Time::get_frameCount());
+      continue;
+    }
+    auto* rt = il2cpp_utils::try_cast<UnityEngine::RenderTexture>(texture).value_or(nullptr);
+    PaperLogger.info("Vivify separate-eye {} grab '{}' frame {}: '{}' id={} {}x{} rt={} eyeTarget={} "
+                     "eyeImage={}x{}",
+                     eye, name, UnityEngine::Time::get_frameCount(), std::string(texture->get_name()),
+                     texture->GetInstanceID(), texture->get_width(), texture->get_height(),
+                     Alive(rt) ? "yes" : "no", texture == static_cast<UnityEngine::Texture*>(colors[eye].ptr()) ? "SAME" : "no",
+                     width, height);
+  }
+}
+
 void EnsureTargets(UnityEngine::RenderTextureDescriptor descriptor) {
   int const nextFormat = descriptor.get_graphicsFormat().value__;
   // Drawing every eye's scene twice can halve the frame rate (Aether's
@@ -1318,6 +1352,7 @@ bool RenderEyes(UnityEngine::Camera* main, UnityEngine::RenderTextureDescriptor 
         } sceneEffect(effects);
         camera->Render();
       }
+      LogEyeGrabs(eye);
       captureEye = -1;
       if (failed || !captureComplete) throw std::runtime_error("eye image callback did not complete");
       RestoreMaterials(swaps);

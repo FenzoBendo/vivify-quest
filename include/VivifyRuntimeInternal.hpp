@@ -95,6 +95,10 @@ public:
   bool HasSecondaryCameras() const { return !_secondaryCameras.empty(); }
   bool IsMultiplayerGameplayForEyeRenderer() { return IsInMultiplayerGameplay(); }
   bool GetPreEffectsEmpty() const { return _preEffects.empty(); }
+  std::set<std::string> GrabTextureNames() {
+    std::lock_guard lock(_depthScanMutex);
+    return _grabTextureNames;
+  }
   bool GetPostEffectsEmpty() const { return _postEffects.empty(); }
   // Replaying effects twice must not advance shared render-texture state twice.
   bool HasSharedEyeEffectTargets() const {
