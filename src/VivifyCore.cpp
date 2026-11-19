@@ -192,6 +192,7 @@ void Runtime::Update() {
     if (!_pauseMenuActive && !(_preEffects.empty() && _postEffects.empty())) {
       ReportGameplayFrame(UnityEngine::Time::get_unscaledDeltaTime());
     }
+    if (!_pauseMenuActive) ReportSeparateEyeFrame(UnityEngine::Time::get_unscaledDeltaTime());
     // Crash recovery's sign of life, every 5 s of play (0.15.2).
     if (frameStart - _lastRecoveryHeartbeat > std::chrono::seconds(5)) {
       _lastRecoveryHeartbeat = frameStart;

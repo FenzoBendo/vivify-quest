@@ -40,6 +40,68 @@ conversion cache version, and cached conversions are redone automatically.
   index existed are not deduplicated against; they leave with the 30-day
   retention.
 
+## [0.15.39] - 2026-11-19
+
+Diagnostics only. Not tried on a headset.
+
+### Added
+- Separate-eye grab check: while the scene is drawn once per eye, every 2 s
+  each eye logs what its own copy of each GrabPass texture holds right after
+  it drew (`<name>__VivifyEye<N>`: which texture, its size, and whether it is
+  that eye's own render target). Aether's glass rocks (Swifter/GlassTerrain,
+  GrabPass "_GrabTexture1") smear and ghost only while the rift (a geometry
+  effect) is on screen, which is exactly when the eyes are drawn separately;
+  with the rift gone the rocks are fine. The rift itself reads no grab, there
+  is no mirror in the map, and the game's bloom pre-pass draws only lights, so
+  this records which of a stale grab or a grab read while being drawn into it
+  is.
+
+## [0.15.38] - 2026-11-19
+
+Not tried on a headset.
+
+### Fixed
+- Aether ghosted from 1:48 to about 2:21, when the rift appears. Its Triangle
+  Explosion is a geometry effect, so since 0.15.32 the Separate-Eye Renderer
+  draws the scene once per eye there, and together with the glass rocks, the
+  star and the bokeh blur the game held 33-37 fps (300 frames every 8-9 s in
+  the log). The headset then shows each frame twice, shifted, and everything
+  that moves ghosts. The eye images were always full size (1680x1760). Now,
+  while the eyes are drawn separately and frames stay slow against the best
+  the level has managed, the eye images step down 10% at a time, after a
+  second of slow frames, to 50% at least. They step back up after 5 s at full
+  speed, and a step up that turns slow again within 3 s stops further steps
+  up for that level. Each change is logged ("Vivify separate-eye resolution:
+  ..."). The picture is softer while it is lowered.
+
+### Added
+- "Separate Eyes Follow Effect Resolution" (Performance, off by default): the
+  Separate-Eye Renderer's eye images use the Effect Resolution % instead of the
+  automatic size.
+
+## [0.15.37] - 2026-11-19
+
+Diagnostics only; nothing that draws is changed. Not tried on a headset.
+
+### Added
+- Text check: a moment after a map prefab with world-space TextMeshPro text
+  spawns, and again six seconds later, the log records what TextMeshPro built
+  for each text: characters shown, the mesh's vertex count and bounds, the
+  SDF scale it wrote into the glyphs (uv2), the object's world scale, the font
+  asset (and whether it is dynamic with no source font) and the shader.
+  Lifelike's runway text draws as something see-through on the Quest. The
+  font, its atlas, the converted shader and the game's TextMeshPro all match
+  the PC, so the next log has to show what is different at run time. Two
+  leads it will settle: the text's parent grows from scale 0 over four beats
+  (TextMeshPro writes the scale into every glyph), and three of its symbols
+  (ϕ, λ, °) are missing from the map's font, which is a dynamic font asset
+  shipped without its source font.
+- Reflection check: the visual checks at 5 s and 30 s also list the scene's
+  reflection probes (mode, refresh, resolution, position, cubemap) and the
+  environment reflection. Lifelike's and Luminescent's water reflect from that
+  cubemap (`unity_SpecCube0`), not from a mirror camera, and on the headset the
+  reflection tilts with the head.
+
 ## [0.15.36] - 2026-11-19
 
 Not tried on a headset.
