@@ -40,6 +40,29 @@ conversion cache version, and cached conversions are redone automatically.
   index existed are not deduplicated against; they leave with the 30-day
   retention.
 
+## [0.15.42] - 2026-11-19
+
+Not tried on a headset.
+
+### Fixed
+- Get Your Wish: the square in front of the window at 55 seconds. It is
+  `CubeScreen (1)` in cube.prefab, the only object with CensorEffectMat
+  (FX/CensorWorldSpace): a GrabPass quad with `_Pixelation` fixed at 0.0001
+  and render queue 4000, which on the PC draws the scene behind it again and
+  so shows as nothing. On the headset (2019 bundle, its
+  UNITY_SINGLE_PASS_STEREO variant) it squeezed its screen copy into one half
+  of the view with `unity_StereoScaleOffset`, as for PC single-pass stereo's
+  double-wide image, and drew a broken, misplaced picture. Under the Quest's
+  multiview each eye is a whole image, so two-eye shaders now read
+  unity_StereoScaleOffset as (1, 1, 0, 0). With 0.15.40's grab orientation
+  fix the quad shows the scene behind it, which is nothing, as on the PC.
+- Two-eye pixel shaders written without UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX
+  read the per-eye camera matrices at the left eye's rows in both eyes (the
+  compiler folds unity_StereoEyeIndex 0 in): the right eye projected with the
+  left eye's matrices. Each eye now reads its own rows. (Get Your Wish's 2021
+  bundle has this form of the same quad.)
+- Converted copies are redone once (conversion version 33 -> 34).
+
 ## [0.15.41] - 2026-11-19
 
 Not tried on a headset.

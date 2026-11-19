@@ -1319,6 +1319,7 @@ class GlslEmitter {
   // single-pass instanced stereo) and written by a vertex one.
   bool _usedRTArrayIndexIn = false;
   bool _usedViewLayer = false;
+  bool _usedPixelStereoEye = false;
   std::string _stereoEyeIndexType;  // set when unity_StereoEyeIndex is fed from the view
   bool _writesRTArrayIndex = false;
   bool _stereoInstanced = false;
@@ -2250,6 +2251,18 @@ std::string GlslEmitter::ConstantComponent(Operand const& operand, int component
            "') is not an array");
       return {};
     }
+    // unity_StereoScaleOffset (rows 66-67 of the per-eye block) places each
+    // eye in one half of a double-wide image: PC single-pass stereo, which a
+    // 2019 bundle's UNITY_SINGLE_PASS_STEREO variant is built for
+    // (TransformStereoScreenSpaceTex). Under the Quest's multiview each eye
+    // is a whole image of its own, so it is always (1, 1, 0, 0) here (0.15.42).
+    // Get Your Wish's window quad (FX/CensorWorldSpace) squeezed its screen
+    // copy into half the view with it and drew a broken, misplaced picture
+    // where the PC draws the scene behind it, which shows as nothing.
+    if (_options.multiview && found->name == "vivify_cb_UnityStereoGlobals" &&
+        (rowIndex.immediate == 66 || rowIndex.immediate == 67)) {
+      return component < 2 ? "1.0" : "0.0";
+    }
     std::string index = ScalarInt(*rowIndex.relative);
     int64_t const base = static_cast<int64_t>(found->startOffset / 16u);
     int64_t const bias = static_cast<int64_t>(rowIndex.immediate) - base;
@@ -2259,8 +2272,30 @@ std::string GlslEmitter::ConstantComponent(Operand const& operand, int component
     expression = found->name + "[" + index + "]." + kComponentNames[component];
   } else if (found->isArray) {
     uint32_t const withinVariable = byteOffset - found->startOffset;
-    expression = found->name + "[" + std::to_string(withinVariable / found->elementStride) + "]." +
-                 kComponentNames[(withinVariable % found->elementStride) / 4u];
+    uint32_t const element = withinVariable / found->elementStride;
+    // See the relative branch: no double-wide image under multiview.
+    if (_options.multiview && found->name == "vivify_cb_UnityStereoGlobals" && (element == 66 || element == 67)) {
+      return component < 2 ? "1.0" : "0.0";
+    }
+    std::string index = std::to_string(element);
+    // A pixel shader written without UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX
+    // reads the per-eye camera block with unity_StereoEyeIndex left at 0, and
+    // the compiler folds that into fixed left-eye rows. In the right eye it
+    // then projects with the left eye's matrices: Get Your Wish's window quad
+    // (FX/CensorWorldSpace, a grab of the scene behind it) showed a shifted,
+    // broken copy of the view instead of nothing (0.15.42). Under multiview
+    // each eye's pixels now read their own rows: the block holds eight
+    // float4x4[2] (four rows per eye) and then two float3 / float4 [2].
+    if (_options.multiview && _program.stage == Stage::Pixel && found->name == "vivify_cb_UnityStereoGlobals") {
+      int stride = 0;
+      if (element < 64 && element % 8 < 4) stride = 4;
+      else if (element == 64) stride = 1;
+      if (stride != 0) {
+        _usedPixelStereoEye = true;
+        index += " + " + std::to_string(stride) + " * int(gl_ViewID_OVR)";
+      }
+    }
+    expression = found->name + "[" + index + "]." + kComponentNames[(withinVariable % found->elementStride) / 4u];
   } else if (found->scalarDeclaration) {
     expression = found->name;
   } else {
@@ -4068,7 +4103,7 @@ GlslResult GlslEmitter::Run() {
   bool const needsViewId =
       _options.multiview && (_program.stage == Stage::Vertex ||
                              (_usedRTArrayIndexIn && _program.stage != Stage::Geometry) ||
-                             _usedViewLayer || !_stereoEyeIndexType.empty());
+                             _usedViewLayer || _usedPixelStereoEye || !_stereoEyeIndexType.empty());
   if (needsViewId) {
     source += "#extension GL_OVR_multiview2 : require\n";
     if (_program.stage == Stage::Vertex) source += "layout(num_views = 2) in;\n";
