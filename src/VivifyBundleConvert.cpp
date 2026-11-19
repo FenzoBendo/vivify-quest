@@ -1803,6 +1803,36 @@ LinkedShader ConvertThroughParsedForm(uint8_t const* nodeData, size_t nodeSize,
   // Keyed by entry and mode: one entry can be translated both ways when a
   // plain and a stereo variant share it.
   std::map<std::tuple<uint32_t, bool, bool>, Vivify::Dxbc::GlslResult> translated;
+  // Grab textures of an isolated donor get names of their own (0.15.35). A
+  // named GrabPass copies the screen once per frame for the first object
+  // that uses the name, whatever camera draws it. The separate-eye cameras
+  // draw before the main camera, so the left eye's copy was the only one: the
+  // right eye refracted the left eye's picture, and the main camera's
+  // two-eye copy came from the previous frame. Aether's glass rocks went
+  // flat and lagged, and its shockwave became a tilted square. With a name
+  // per donor, every eye (and the mono camera) grabs its own picture.
+  std::string const grabSuffix =
+      !(conversionOptions.namespaceEyeShaders || conversionOptions.namespaceSingleViewShaders) ? std::string() :
+      conversionOptions.nativePerspectiveDonor ? std::string("__VivifyNative") :
+      conversionOptions.namespaceSingleViewShaders ? std::string("__VivifyMono") :
+      std::string(conversionOptions.singleViewBlit ? "__VivifyBlitEye" : "__VivifyEye") +
+          std::to_string(conversionOptions.singleViewStereoEye);
+  auto renameGrabTextures = [&](Vivify::Dxbc::GlslResult& result) {
+    if (grabSuffix.empty() || !result.ok) return;
+    auto word = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; };
+    for (auto const& grab : shader.grabTextures) {
+      if (grab.empty()) continue;
+      std::string const renamed = grab + grabSuffix;
+      for (size_t at = result.source.find(grab); at != std::string::npos; at = result.source.find(grab, at)) {
+        bool const startOk = at == 0 || !word(result.source[at - 1]);
+        bool const endOk = at + grab.size() >= result.source.size() || !word(result.source[at + grab.size()]);
+        if (startOk && endOk) { result.source.replace(at, grab.size(), renamed); at += renamed.size(); }
+        else at += grab.size();
+      }
+      for (auto* list : {&result.samplers, &result.uniforms})
+        for (auto& name : *list) if (name == grab) name = renamed;
+    }
+  };
   auto translate = [&](ParsedProgramRef const& ref, bool forceMultiview = false) -> Vivify::Dxbc::GlslResult const* {
     uint32_t const blob = ref.blobIndex;
     bool const multiview = forceMultiview || multiviewRef[indexOf(ref)];
@@ -1814,6 +1844,12 @@ LinkedShader ConvertThroughParsedForm(uint8_t const* nodeData, size_t nodeSize,
                                    "_CameraMotionVectorsTexture", "_CameraOpaqueTexture", "_GrabTexture"};
       options.singleViewTextures.insert(options.singleViewTextures.end(), shader.grabTextures.begin(), shader.grabTextures.end());
       if (conversionOptions.singleViewBlit) options.singleViewTextures.push_back("_MainTex");
+    }
+    if (multiview) {
+      // Under two-eye rendering a screen grab is a two-layer array; a grab the
+      // PC shader declared 2D is read at the drawing eye's layer (0.15.36).
+      options.viewLayerTextures = {"_GrabTexture"};
+      options.viewLayerTextures.insert(options.viewLayerTextures.end(), shader.grabTextures.begin(), shader.grabTextures.end());
     }
     bool const spi = (multiview || options.singleViewStereoEye >= 0) && spiRef[indexOf(ref)];
     options.stereoInstancedProgram = spi;
@@ -1836,6 +1872,7 @@ LinkedShader ConvertThroughParsedForm(uint8_t const* nodeData, size_t nodeSize,
                                                      program.code.size(), withReflection);
           if (result.ok) {
             out.programsTranslated++;
+            renameGrabTextures(result);
           } else {
             out.variantReasons.insert(result.error);
           }
@@ -2220,9 +2257,13 @@ LinkedShader ConvertThroughParsedForm(uint8_t const* nodeData, size_t nodeSize,
         offsets.push_back(offset);
       }
     }
+    if (offsets.empty()) { out.reason = "shader name fields could not be isolated"; return out; }
+    // Grab pass texture names take the donor's suffix (see renameGrabTextures).
+    std::set<size_t> suffixed;
+    if (!grabSuffix.empty())
+      for (size_t offset : shader.grabTextureNameOffsets) if (offset) { suffixed.insert(offset); offsets.push_back(offset); }
     std::sort(offsets.begin(), offsets.end(), std::greater<size_t>());
     offsets.erase(std::unique(offsets.begin(), offsets.end()), offsets.end());
-    if (offsets.empty()) { out.reason = "shader name fields could not be isolated"; return out; }
     // Name fields precede the replaced program store. Splice from back to
     // front, preserving four-byte alignment. RewriteSerializedFile updates
     // object byte sizes and offsets around the larger body afterwards.
@@ -2235,11 +2276,14 @@ LinkedShader ConvertThroughParsedForm(uint8_t const* nodeData, size_t nodeSize,
       size_t const oldSpan = 4 + ((size_t(length) + 3) & ~size_t(3));
       if (oldSpan > rebuilt.body.size() - at || length > 65536) { out.reason = "invalid shader name length"; return out; }
       std::vector<uint8_t> replacement;
-      if (prefix.size() > 65536 - length) { out.reason = "isolated shader name is too long"; return out; }
-      uint32_t const newLength = static_cast<uint32_t>(prefix.size() + length);
+      bool const suffix = suffixed.contains(absolute);
+      std::string const& added = suffix ? grabSuffix : prefix;
+      if (added.size() > 65536 - length) { out.reason = "isolated shader name is too long"; return out; }
+      uint32_t const newLength = static_cast<uint32_t>(added.size() + length);
       for (int i = 0; i != 4; ++i) replacement.push_back(static_cast<uint8_t>(newLength >> (i * 8)));
-      replacement.insert(replacement.end(), prefix.begin(), prefix.end());
+      if (!suffix) replacement.insert(replacement.end(), prefix.begin(), prefix.end());
       replacement.insert(replacement.end(), rebuilt.body.begin() + at + 4, rebuilt.body.begin() + at + 4 + length);
+      if (suffix) replacement.insert(replacement.end(), grabSuffix.begin(), grabSuffix.end());
       while (replacement.size() % 4) replacement.push_back(0);
       rebuilt.body.erase(rebuilt.body.begin() + at, rebuilt.body.begin() + at + oldSpan);
       rebuilt.body.insert(rebuilt.body.begin() + at, replacement.begin(), replacement.end());
