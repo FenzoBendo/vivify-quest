@@ -354,6 +354,13 @@ struct GlslOptions {
   // Render-texture globals used by a non-layered camera. Only these array
   // resources lose their layer coordinate; authored texture arrays stay arrays.
   std::vector<std::string> singleViewTextures;
+  // The reverse, for multiview programs (0.15.36): screen-grab textures a PC
+  // shader declared as a plain 2D texture (written without Unity's stereo
+  // macros) are sampled as the two-layer array they are on the Quest, at the
+  // layer of the eye being drawn. A plain 2D sampler bound to that array
+  // returned nothing: Get Your Wish's "transparent" window (a world-space
+  // censor quad reading GrabPass {}) drew as a flat grey square.
+  std::vector<std::string> viewLayerTextures;
   // The program is the STEREO_INSTANCING_ON (single-pass instanced) variant,
   // or a plain variant given that variant's code. Its vertex stage takes the
   // eye from SV_InstanceID even when it does not write

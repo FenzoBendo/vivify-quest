@@ -1115,6 +1115,40 @@ for side in ("left", "right"):
         _, f, _, source = run("glsl-eye-" + side, pixel_shader(body, textures=(("_CameraDepthTexture", 5),)))
         check(f"{side} mono camera array {label} preserves addressing", f.get("ok") == "1" and expected in source, source or f)
 
+# A screen grab declared 2D in a multiview program is the two-layer grab array
+# on the Quest: it is sampled at the drawing eye's layer (0.15.36). Asset
+# textures and grabs already declared as arrays keep their shapes.
+for name, dimension, promoted in (("_GrabTexture", 4, True), ("_CapturedScene", 4, True),
+                                  ("_MainTex", 4, False), ("_GrabTexture", 5, False)):
+    code = pixel_shader(m.insn(SAMPLE, m.dest(OUTPUT, 0), m.src(INPUT, 0), m.src(RESOURCE, 0), m.src(SAMPLER_T, 0)),
+                        textures=((name, dimension),))
+    _, f, _, source = run("glsl-mv", code)
+    if promoted:
+        ok = (f"sampler2DArray {name};" in source and
+              f"texture({name}, vec3(vs_TEXCOORD0.xy, vivify_ViewLayer))" in source and
+              "float vivify_ViewLayer = float(gl_ViewID_OVR);" in source and
+              "#extension GL_OVR_multiview2 : require" in source)
+    else:
+        ok = "vivify_ViewLayer" not in source
+    check(f"multiview {name} (dimension {dimension}) {'reads the eye layer' if promoted else 'keeps its shape'}",
+          f.get("ok") == "1" and ok, source or f)
+    _, f, _, source = run("glsl", code)
+    check(f"single-view {name} (dimension {dimension}) is not layered",
+          f.get("ok") == "1" and "vivify_ViewLayer" not in source, source or f)
+grab_operations = [
+    ("lod", m.insn(SAMPLE_L, m.dest(OUTPUT, 0), m.src(INPUT, 0), m.src(RESOURCE, 0), m.src(SAMPLER_T, 0), m.imm_float(0)),
+     "textureLod(_GrabTexture, vec3(vs_TEXCOORD0.xy, vivify_ViewLayer), 0.0)"),
+    ("gather", m.insn(GATHER4, m.dest(OUTPUT, 0), m.src(INPUT, 0), m.src(RESOURCE, 0), m.src(SAMPLER_T, 0)),
+     "textureGather(_GrabTexture, vec3(vs_TEXCOORD0.xy, vivify_ViewLayer), 0)"),
+    ("load", m.insn(LD, m.dest(OUTPUT, 0), m.src(INPUT, 0), m.src(RESOURCE, 0)),
+     ", int(vivify_ViewLayer)), "),
+    ("size", m.insn(RESINFO, m.dest(OUTPUT, 0), m.imm_int(0), m.src(RESOURCE, 0), controls=1),
+     "textureSize(_GrabTexture, 0).y"),
+]
+for label, body, expected in grab_operations:
+    _, f, _, source = run("glsl-mv", pixel_shader(body, textures=(("_GrabTexture", 4),)))
+    check(f"multiview grab {label} reads the eye layer", f.get("ok") == "1" and expected in source, source or f)
+
 glslang_enabled = False
 truncation_failures = 0
 for length in range(0, len(vertex)):

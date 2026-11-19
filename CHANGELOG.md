@@ -40,6 +40,26 @@ conversion cache version, and cached conversions are redone automatically.
   index existed are not deduplicated against; they leave with the 30-day
   retention.
 
+## [0.15.36] - 2026-11-19
+
+Not tried on a headset.
+
+### Fixed
+- Get Your Wish: the window you fly through at 55 seconds was hidden behind a
+  flat grey square. The window frame holds a world-space screen quad
+  (`CubeScreen (1)`, shader FX/CensorWorldSpace) that shows the scene behind
+  it through an unnamed `GrabPass {}`. That is what makes the window look
+  transparent before the sky image fades in. The PC shader declares
+  `_GrabTexture` as a plain 2D texture. On the Quest, with both eyes drawn
+  at once, the screen copy is a two-layer texture (one layer per eye), and
+  a 2D sampler bound to it reads nothing usable in OpenGL ES, so the quad
+  drew grey. In two-eye shader programs, screen-grab textures declared 2D
+  (`_GrabTexture` and every named GrabPass texture of the shader) are now
+  read as the two-layer texture, at the layer of the eye being drawn. This
+  covers normal samples, explicit-level, gradient and gather samples, and
+  texel fetches. Converted copies are redone once (conversion version
+  31 -> 32).
+
 ## [0.15.35] - 2026-11-18
 
 Not tried on a headset.

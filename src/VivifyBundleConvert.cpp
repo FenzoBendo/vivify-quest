@@ -1845,6 +1845,12 @@ LinkedShader ConvertThroughParsedForm(uint8_t const* nodeData, size_t nodeSize,
       options.singleViewTextures.insert(options.singleViewTextures.end(), shader.grabTextures.begin(), shader.grabTextures.end());
       if (conversionOptions.singleViewBlit) options.singleViewTextures.push_back("_MainTex");
     }
+    if (multiview) {
+      // Under two-eye rendering a screen grab is a two-layer array; a grab the
+      // PC shader declared 2D is read at the drawing eye's layer (0.15.36).
+      options.viewLayerTextures = {"_GrabTexture"};
+      options.viewLayerTextures.insert(options.viewLayerTextures.end(), shader.grabTextures.begin(), shader.grabTextures.end());
+    }
     bool const spi = (multiview || options.singleViewStereoEye >= 0) && spiRef[indexOf(ref)];
     options.stereoInstancedProgram = spi;
     options.geometryRightEyeCopy = conversionOptions.geometryRightEyeCopy;

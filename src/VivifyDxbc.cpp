@@ -1172,6 +1172,9 @@ struct MappedTexture {
   bool comparison = false;  // declared as a shadow sampler
   bool multisample = false;
   bool singleLayerArray = false;
+  // Declared as sampler2DArray but addressed as 2D; the eye's layer is added
+  // to every coordinate (viewLayerTextures).
+  bool viewLayer = false;
 };
 
 // A read/write resource: a D3D UAV, or a structured/raw shader resource. These
@@ -1255,6 +1258,12 @@ class GlslEmitter {
   uint32_t _gsInvocations = 1;
 
   MappedTexture const* TextureFor(Operand const& resource);
+  // A view-layer texture (viewLayerTextures) is addressed with the shader's 2D
+  // coordinate plus the layer of the eye being drawn.
+  static std::string LayeredCoordinate(MappedTexture const& texture, std::string const& coordinate) {
+    if (!texture.viewLayer) return coordinate;
+    return "vec3(" + coordinate + ", vivify_ViewLayer)";
+  }
   MappedStorage const* StorageFor(Operand const& operand);
   std::string SampleOffsetArgument(Instruction const& instruction, int components);
   std::string ResourceSwizzle(Operand const& resource, uint8_t mask);
@@ -1309,6 +1318,7 @@ class GlslEmitter {
   // SV_RenderTargetArrayIndex read by a pixel program (the eye index in PC
   // single-pass instanced stereo) and written by a vertex one.
   bool _usedRTArrayIndexIn = false;
+  bool _usedViewLayer = false;
   std::string _stereoEyeIndexType;  // set when unity_StereoEyeIndex is fed from the view
   bool _writesRTArrayIndex = false;
   bool _stereoInstanced = false;
@@ -1660,10 +1670,20 @@ bool GlslEmitter::BuildResources() {
       texture.singleLayerArray = true;
     }
     texture.comparison = comparisonTextures.count(binding.bindPoint) != 0;
+    if (_options.multiview && binding.dimension == 4 && !texture.comparison &&
+        (_program.stage == Stage::Pixel || _program.stage == Stage::Vertex) &&
+        std::find(_options.viewLayerTextures.begin(), _options.viewLayerTextures.end(), binding.name) !=
+            _options.viewLayerTextures.end()) {
+      texture.viewLayer = true;
+      _usedViewLayer = true;
+    }
 
     std::string shape;
     switch (texture.dimension) {
-      case 4: shape = "2D"; texture.coordinateComponents = 2; break;
+      case 4:
+        shape = texture.viewLayer ? "2DArray" : "2D";
+        texture.coordinateComponents = 2;
+        break;
       case 5: shape = "2DArray"; texture.coordinateComponents = 3; break;
       case 6:
         shape = "2DMS";
@@ -2802,7 +2822,7 @@ bool GlslEmitter::EmitInstruction(Instruction const& instruction) {
               SrcFloat(operands[1], coordinateMask) + ", " +
               ScalarFloat(operands[operands.size() - 1]) + ")";
     } else {
-      call += SrcFloat(operands[1], static_cast<uint8_t>((1u << coordinateComponents) - 1u));
+      call += LayeredCoordinate(*texture, SrcFloat(operands[1], static_cast<uint8_t>((1u << coordinateComponents) - 1u)));
     }
     if (levelZero) {
       if (texture->dimension == 4) call += ", 0.0";
@@ -2869,7 +2889,8 @@ bool GlslEmitter::EmitInstruction(Instruction const& instruction) {
 
     std::string call = instruction.hasSampleOffsets ? "textureGatherOffset(" : "textureGather(";
     call += texture->name + ", " +
-            SrcFloat(operands[1], static_cast<uint8_t>((1u << texture->coordinateComponents) - 1u));
+            LayeredCoordinate(*texture, SrcFloat(operands[1], static_cast<uint8_t>(
+                                                                  (1u << texture->coordinateComponents) - 1u)));
     // Shadow gather overloads take their comparison before the texel offset;
     // non-shadow overloads take the selected channel after it.
     if (comparison) call += ", " + ScalarFloat(operands[operands.size() - 1]);
@@ -3474,8 +3495,8 @@ bool GlslEmitter::EmitInstruction(Instruction const& instruction) {
       if (texture->dimension == 10) gradientComponents = 3;
       uint8_t const gradientMask = static_cast<uint8_t>((1u << gradientComponents) - 1u);
       std::string call = instruction.hasSampleOffsets ? "textureGradOffset(" : "textureGrad(";
-      call += texture->name + ", " + SrcFloat(operands[1], coordinateMask) + ", " +
-              SrcFloat(operands[4], gradientMask) + ", " + SrcFloat(operands[5], gradientMask);
+      call += texture->name + ", " + LayeredCoordinate(*texture, SrcFloat(operands[1], coordinateMask)) +
+              ", " + SrcFloat(operands[4], gradientMask) + ", " + SrcFloat(operands[5], gradientMask);
       call += SampleOffsetArgument(instruction, gradientComponents);
       call += ")";
       WriteDest(instruction, operands[0], call + ResourceSwizzle(resource, destMask()));
@@ -3512,8 +3533,13 @@ bool GlslEmitter::EmitInstruction(Instruction const& instruction) {
       int const coordinateComponents = texture->coordinateComponents;
       uint8_t const coordinateMask = static_cast<uint8_t>((1u << coordinateComponents) - 1u);
       std::string call = instruction.hasSampleOffsets ? "texelFetchOffset(" : "texelFetch(";
-      call += texture->name + ", " + VecType(coordinateComponents, "i") + "(" +
-              SrcInt(operands[1], coordinateMask) + ")";
+      if (texture->viewLayer) {
+        call += texture->name + ", ivec3(" + SrcInt(operands[1], coordinateMask) +
+                ", int(vivify_ViewLayer))";
+      } else {
+        call += texture->name + ", " + VecType(coordinateComponents, "i") + "(" +
+                SrcInt(operands[1], coordinateMask) + ")";
+      }
       if (opcode == OP_LD_MS) {
         // The sample index is a separate operand; a multisample fetch has no
         // mip level.
@@ -3983,6 +4009,7 @@ GlslResult GlslEmitter::Run() {
     }
   }
   if (_emitViewIndexVarying) addPrologue("vivify_ViewIndex = int(gl_ViewID_OVR);");
+  if (_usedViewLayer) addPrologue("float vivify_ViewLayer = float(gl_ViewID_OVR);");
   if (_usedPrimitiveID) addPrologue("ivec4 vPrimitiveID = ivec4(gl_PrimitiveID);");
   if (_usedSampleIndex) addPrologue("ivec4 vSampleIndex = ivec4(gl_SampleID);");
   // The right-eye copy runs on a second invocation of its own; a stage that
@@ -4041,7 +4068,7 @@ GlslResult GlslEmitter::Run() {
   bool const needsViewId =
       _options.multiview && (_program.stage == Stage::Vertex ||
                              (_usedRTArrayIndexIn && _program.stage != Stage::Geometry) ||
-                             !_stereoEyeIndexType.empty());
+                             _usedViewLayer || !_stereoEyeIndexType.empty());
   if (needsViewId) {
     source += "#extension GL_OVR_multiview2 : require\n";
     if (_program.stage == Stage::Vertex) source += "layout(num_views = 2) in;\n";
