@@ -40,6 +40,76 @@ conversion cache version, and cached conversions are redone automatically.
   index existed are not deduplicated against; they leave with the 30-day
   retention.
 
+## [0.15.42] - 2026-11-19
+
+Not tried on a headset.
+
+### Fixed
+- Get Your Wish: the square in front of the window at 55 seconds. It is
+  `CubeScreen (1)` in cube.prefab, the only object with CensorEffectMat
+  (FX/CensorWorldSpace): a GrabPass quad with `_Pixelation` fixed at 0.0001
+  and render queue 4000, which on the PC draws the scene behind it again and
+  so shows as nothing. On the headset (2019 bundle, its
+  UNITY_SINGLE_PASS_STEREO variant) it squeezed its screen copy into one half
+  of the view with `unity_StereoScaleOffset`, as for PC single-pass stereo's
+  double-wide image, and drew a broken, misplaced picture. Under the Quest's
+  multiview each eye is a whole image, so two-eye shaders now read
+  unity_StereoScaleOffset as (1, 1, 0, 0). With 0.15.40's grab orientation
+  fix the quad shows the scene behind it, which is nothing, as on the PC.
+- Two-eye pixel shaders written without UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX
+  read the per-eye camera matrices at the left eye's rows in both eyes (the
+  compiler folds unity_StereoEyeIndex 0 in): the right eye projected with the
+  left eye's matrices. Each eye now reads its own rows. (Get Your Wish's 2021
+  bundle has this form of the same quad.)
+- Converted copies are redone once (conversion version 33 -> 34).
+
+## [0.15.41] - 2026-11-19
+
+Not tried on a headset.
+
+### Fixed
+- Map saber trails still vanished while a geometry effect was on screen
+  (0.15.35 did not fix it). A map trail's mesh is drawn by a
+  SaberTrailRenderer that the trail instantiates at the scene root (or beside
+  the game's own trail), not under the trail's object, so 0.15.35 registered
+  an object with no renderer in it; and the trail's material is the
+  renderer's own runtime copy, which the Separate-Eye Renderer did not know
+  and so never gave its single-eye shader. Both are now registered.
+
+## [0.15.40] - 2026-11-19
+
+Not tried on a headset.
+
+### Fixed
+- Screen effects that read a GrabPass upside down: 743 Aether's shockwaves
+  (Swifter/VFX/ShockwaveParticle, a square showing the view flipped) and Get
+  Your Wish's window (FX/CensorWorldSpace, the scene behind it). Unity's
+  ComputeGrabScreenPos, compiled for Direct3D, bakes the top-down grab
+  convention into the bytecode as a multiply by (0.5, -0.5); the Quest's
+  OpenGL grab is stored bottom-up. In passes that read a GrabPass texture,
+  that constant now gets +0.5, as Unity's own OpenGL build of the shader has.
+  Shaders that flip with _ProjectionParams.x (Aether's glass rocks) carry no
+  such constant and are unchanged. Converted copies are redone once
+  (conversion version 32 -> 33).
+- The game's mirror (Lifelike's runway and water, luminescent's lake) turned
+  and slid with the head. It draws its reflection once per eye from a head
+  pose it works out itself; each half is now drawn from the eye's own view
+  and projection, the ones the frame uses. Where the game's pose was already
+  the eye's, nothing changes. The first draw of each level logs how far apart
+  they were ("Vivify mirror: eye pose used for the reflection ...").
+- 743 Aether's rift section ran at 25 fps on the Separate-Eye Renderer with
+  the eye images left at 100%: with "Separate Eyes Follow Effect Resolution"
+  on, the automatic size steps were off entirely. They now also apply in that
+  mode below the Effect Resolution %, while Auto Effect Resolution is on (its
+  default), and step 20% at a time while frames take twice as long as the
+  level's best.
+
+### Notes
+- Lifelike's runway text: on the headset TextMeshPro builds it completely
+  (911 characters, a 2888-vertex mesh, a sound SDF scale, the map's own shader
+  and font), so the text itself is not what is missing. The runway surface
+  under it is the game's track mirror, which the mirror fix above is about.
+
 ## [0.15.39] - 2026-11-19
 
 Diagnostics only. Not tried on a headset.
