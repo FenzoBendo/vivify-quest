@@ -221,6 +221,12 @@ private:
   void EnterRecoveryModeIfNeeded();
   bool IsRecoverySkippedBlit(std::string const& normalizedAsset) const;
   void RunVisualCheck(std::string_view when);
+  // World-space text in map prefabs (0.15.37): what TextMeshPro actually
+  // built on the headset, logged a moment after the prefab spawns and again
+  // a few seconds later. Lifelike's runway text draws as something
+  // see-through and nothing in the log said why.
+  void NoteSpawnedText(UnityEngine::GameObject* instance, std::string const& asset);
+  void RunTextChecks();
   void NoteVisualProblem(std::string problem);
   void DownloadBundle(uint32_t checksum, std::string const& levelPath, std::function<void(bool)> callback);
   // The same, saving to destPath instead of the level's Android bundle path.
@@ -723,6 +729,13 @@ private:
   // this level, for the top of its report block.
   std::vector<std::string> _visualProblems;
   int _visualChecksRun = 0;
+  struct TextCheck {
+    UnityEngine::GameObject* instance = nullptr;
+    std::string asset;
+    float due = 0;
+    int round = 0;
+  };
+  std::vector<TextCheck> _textChecks;
   std::vector<std::string> _auditRejectedNames;
   int _texturesDecoded = 0;
   int _texturesSkipped = 0;

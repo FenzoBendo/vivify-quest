@@ -40,6 +40,29 @@ conversion cache version, and cached conversions are redone automatically.
   index existed are not deduplicated against; they leave with the 30-day
   retention.
 
+## [0.15.37] - 2026-11-19
+
+Diagnostics only; nothing that draws is changed. Not tried on a headset.
+
+### Added
+- Text check: a moment after a map prefab with world-space TextMeshPro text
+  spawns, and again six seconds later, the log records what TextMeshPro built
+  for each text: characters shown, the mesh's vertex count and bounds, the
+  SDF scale it wrote into the glyphs (uv2), the object's world scale, the font
+  asset (and whether it is dynamic with no source font) and the shader.
+  Lifelike's runway text draws as something see-through on the Quest. The
+  font, its atlas, the converted shader and the game's TextMeshPro all match
+  the PC, so the next log has to show what is different at run time. Two
+  leads it will settle: the text's parent grows from scale 0 over four beats
+  (TextMeshPro writes the scale into every glyph), and three of its symbols
+  (ϕ, λ, °) are missing from the map's font, which is a dynamic font asset
+  shipped without its source font.
+- Reflection check: the visual checks at 5 s and 30 s also list the scene's
+  reflection probes (mode, refresh, resolution, position, cubemap) and the
+  environment reflection. Lifelike's and Luminescent's water reflect from that
+  cubemap (`unity_SpecCube0`), not from a mirror camera, and on the headset the
+  reflection tilts with the head.
+
 ## [0.15.36] - 2026-11-19
 
 Not tried on a headset.
