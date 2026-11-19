@@ -657,6 +657,14 @@ private:
   UnityEngine::RenderTexture* _blitGuardIn = nullptr;
   UnityEngine::RenderTexture* _blitGuardOut = nullptr;
   UnityEngine::Texture2D* _blitGuardReader = nullptr;
+  // GC roots for the three above (0.15.43). Held only as raw pointers in
+  // native memory, which the il2cpp collector does not scan, the managed
+  // objects could be collected while still in use: Lifelike crashed at its
+  // first frame reading back the guard's sample (SIGSEGV, fault 0x1cc,
+  // BlitGuardEvaluate), as the stereo check did in 0.15.33.
+  SafePtr<UnityEngine::Object> _blitGuardRoots[3];
+  // The same for the cached main/scratch effect textures (0.15.43).
+  SafePtr<UnityEngine::Object> _blitTextureRoots[2];
   std::unordered_map<UnityEngine::Material*, BlitGuardWatch> _blitGuardWatches;
   std::set<UnityEngine::Material*> _blitGuardKilled;
   bool _blitGuardAllOff = false;

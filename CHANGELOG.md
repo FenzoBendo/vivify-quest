@@ -40,6 +40,26 @@ conversion cache version, and cached conversions are redone automatically.
   index existed are not deduplicated against; they leave with the 30-day
   retention.
 
+## [0.15.43] - 2026-11-19
+
+Not tried on a headset.
+
+### Fixed
+- Lifelike crashed at its first frame (SIGSEGV, fault address 0x1cc, in
+  BlitGuardEvaluate under CameraApplier::RenderEffects). The Flat-Screen
+  Effect Guard's two 16 x 16 sample textures and its read-back texture, and
+  the cached main/scratch effect textures, were held only as raw pointers in
+  native memory, which the game's garbage collector does not see: it could
+  free them while they were still in use, and the guard's next read-back
+  touched freed memory. They are now held with GC handles.
+
+### Notes
+- The other crash in the same upload is in the Tracks mod's own loading
+  (libtracks.so, InstallBeatmapObjectCallbackControllerHooks, at start-up),
+  not in Vivify.
+- 743 Aether on 0.15.42: the separate-eye eye images stepped 80% -> 60% -> 50%
+  within two seconds of the rift (frames at 33-39 ms against a best of 8 ms).
+
 ## [0.15.42] - 2026-11-19
 
 Not tried on a headset.

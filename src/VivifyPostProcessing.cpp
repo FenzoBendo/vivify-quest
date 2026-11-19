@@ -214,6 +214,10 @@ void Runtime::ApplyBlits(UnityEngine::RenderTexture* src, UnityEngine::RenderTex
   if (TryApplyStereoBlits(src, dest, cameraName, phase)) return;
   auto* main = EnsureCachedBlitTexture(_mainBlitTexture, _mainBlitAllocation, src);
   auto* scratch = EnsureCachedBlitTexture(_scratchBlitTexture, _scratchBlitAllocation, src);
+  if (_blitTextureRoots[0].ptr() != static_cast<UnityEngine::Object*>(main))
+    _blitTextureRoots[0] = static_cast<UnityEngine::Object*>(main);
+  if (_blitTextureRoots[1].ptr() != static_cast<UnityEngine::Object*>(scratch))
+    _blitTextureRoots[1] = static_cast<UnityEngine::Object*>(scratch);
   if (!IsAlive(main) || !IsAlive(scratch)) {
     auto* cb = ImmediateCommandBuffer();
     RecordBlit(cb, ToTargetId(src), destId);
@@ -459,6 +463,9 @@ bool Runtime::EnsureBlitGuardTextures() {
     _blitGuardReader = UnityEngine::Texture2D::New_ctor(kGuardSize, kGuardSize, UnityEngine::TextureFormat::RGBA32,
                                                         false);
   }
+  _blitGuardRoots[0] = static_cast<UnityEngine::Object*>(_blitGuardIn);
+  _blitGuardRoots[1] = static_cast<UnityEngine::Object*>(_blitGuardOut);
+  _blitGuardRoots[2] = static_cast<UnityEngine::Object*>(_blitGuardReader);
   return IsAlive(_blitGuardReader);
 }
 
