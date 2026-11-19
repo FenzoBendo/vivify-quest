@@ -690,7 +690,8 @@ char const* SettingHint(std::u16string_view label) {
       {u"Separate Eyes Follow Effect Resolution",
        "Separate-Eye Renderer only. Off (default): while a map is drawn once per eye and runs slowly, the eye "
        "images get smaller by themselves (down to 50%) and grow back when there is room, so moving things do "
-       "not ghost. On: the eye images always use the Effect Resolution % above."},
+       "not ghost. On: the eye images use the Effect Resolution % above, and still get smaller when slow if Auto "
+       "Effect Resolution is on."},
       {u"Offscreen Culling (can hide objects)",
        "Stops animating map objects you are not looking at, to save time. Can leave some objects hidden, so "
        "turn it off if things go missing."},
@@ -1888,7 +1889,12 @@ void ResetAutoEffectResolution() {
 }
 
 void ReportSeparateEyeFrame(float seconds) {
-  if (kLiteBuild || !GetExperimentalSeparateEye() || gSeparateEyeFollowsEffectResolution) return;
+  // With Separate Eyes Follow Effect Resolution on, the automatic steps
+  // still apply below that percentage while Auto Effect Resolution is on
+  // (0.15.40): in 0.15.39 the follow setting turned them off entirely, and
+  // Aether's rift held 25 fps at 100%.
+  if (kLiteBuild || !GetExperimentalSeparateEye() ||
+      (gSeparateEyeFollowsEffectResolution && !gAutoEffectResolution)) return;
   if (!(seconds > 0.0f) || seconds > 0.5f) return;  // a pause or a stall, not pacing
   auto& s = gSeparateEyeAuto;
   s.elapsed += seconds;
@@ -1906,8 +1912,10 @@ void ReportSeparateEyeFrame(float seconds) {
     s.slowFor += seconds;
     s.fastFor = 0.0;
     if (s.slowFor >= 1.0 && percent > 50) {
-      if (s.sinceRaise < 3.0) s.ceiling = std::max(50, percent - 10);
-      percent = std::max(50, percent - 10);
+      // Far behind (twice the best frame time or worse): two steps at once.
+      int const step = s.average > s.best * 1.8 ? 20 : 10;
+      if (s.sinceRaise < 3.0) s.ceiling = std::max(50, percent - step);
+      percent = std::max(50, percent - step);
       gSeparateEyePercent.store(percent);
       s.slowFor = 0.0;
       PaperLogger.info("Vivify separate-eye resolution: frames at {:.1f} ms against a best of {:.1f} ms; eye "
@@ -1931,8 +1939,12 @@ void ReportSeparateEyeFrame(float seconds) {
 
 int GetSeparateEyeResolutionPercent() {
   if (kLiteBuild) return 100;
-  int percent = gSeparateEyeFollowsEffectResolution ? std::clamp(gEffectResolution, 25, 100)
-                                                    : std::clamp(gSeparateEyePercent.load(), 50, 100);
+  int const automatic = std::clamp(gSeparateEyePercent.load(), 50, 100);
+  int percent = automatic;
+  if (gSeparateEyeFollowsEffectResolution) {
+    percent = std::clamp(gEffectResolution, 25, 100);
+    if (gAutoEffectResolution) percent = std::min(percent, automatic);
+  }
   return GetRecoveryModeActive() ? std::min(percent, 50) : percent;
 }
 

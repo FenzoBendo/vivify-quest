@@ -1594,6 +1594,17 @@ LinkedShader ConvertThroughParsedForm(uint8_t const* nodeData, size_t nodeSize,
     ref.parameters = std::move(fromBlob);
   }
 
+  // Passes that read a GrabPass texture, by (subshader, pass): their programs
+  // get the screen-copy y convention of OpenGL (GlslOptions::flipScreenCopyY).
+  std::set<std::pair<int32_t, int32_t>> grabPasses;
+  for (auto const& ref : refs) {
+    for (auto const& texture : ref.parameters.textures) {
+      if (texture.name == "_GrabTexture" ||
+          std::find(shader.grabTextures.begin(), shader.grabTextures.end(), texture.name) != shader.grabTextures.end())
+        grabPasses.emplace(ref.subShader, ref.pass);
+    }
+  }
+
   // Unity before 2021.2 has no keyword table in m_ParsedForm; each program
   // carries its keywords by name instead. They are numbered here so variants
   // can be matched the same way either way.
@@ -1802,7 +1813,7 @@ LinkedShader ConvertThroughParsedForm(uint8_t const* nodeData, size_t nodeSize,
   auto indexOf = [&](ParsedProgramRef const& ref) { return static_cast<size_t>(&ref - refs.data()); };
   // Keyed by entry and mode: one entry can be translated both ways when a
   // plain and a stereo variant share it.
-  std::map<std::tuple<uint32_t, bool, bool>, Vivify::Dxbc::GlslResult> translated;
+  std::map<std::tuple<uint32_t, bool, bool, bool>, Vivify::Dxbc::GlslResult> translated;
   // Grab textures of an isolated donor get names of their own (0.15.35). A
   // named GrabPass copies the screen once per frame for the first object
   // that uses the name, whatever camera draws it. The separate-eye cameras
@@ -1854,7 +1865,8 @@ LinkedShader ConvertThroughParsedForm(uint8_t const* nodeData, size_t nodeSize,
     bool const spi = (multiview || options.singleViewStereoEye >= 0) && spiRef[indexOf(ref)];
     options.stereoInstancedProgram = spi;
     options.geometryRightEyeCopy = conversionOptions.geometryRightEyeCopy;
-    auto cached = translated.find({blob, multiview, spi});
+    options.flipScreenCopyY = grabPasses.contains({ref.subShader, ref.pass});
+    auto cached = translated.find({blob, multiview, spi, options.flipScreenCopyY});
     if (cached == translated.end()) {
       Vivify::Dxbc::GlslResult result;
       auto at = entryAt.find(blob);
@@ -1878,7 +1890,7 @@ LinkedShader ConvertThroughParsedForm(uint8_t const* nodeData, size_t nodeSize,
           }
         }
       }
-      cached = translated.emplace(std::make_tuple(blob, multiview, spi), std::move(result)).first;
+      cached = translated.emplace(std::make_tuple(blob, multiview, spi, options.flipScreenCopyY), std::move(result)).first;
     }
     return cached->second.ok ? &cached->second : nullptr;
   };

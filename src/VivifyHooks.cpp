@@ -129,6 +129,63 @@ MAKE_HOOK_MATCH(MirrorRendererSO_RenderMirrorTexture, &GlobalNamespace::MirrorRe
   if (!bindings.Restore()) SeparateEye::RejectCameraBindings();
   return result;
 }
+// The game's mirror draws its reflection once per eye, into the left and
+// right halves of its stereo texture, from a head pose it works out itself
+// (0.15.40). In Lifelike (its runway and water) and luminescent (the lake) the
+// reflection is the game's floor mirror, and on the Quest it turned and slid
+// with the head: the pose the mirror drew from was not the one the headset
+// drew that eye with. Each half is now drawn from the eye's own view and
+// projection, the ones the frame itself uses. Where the game's pose was
+// already right this changes nothing; the first stereo draw of each level
+// logs how far apart the two were.
+namespace {
+void const* mirrorPoseLevel = nullptr;
+}
+MAKE_HOOK_MATCH(MirrorRendererSO_RenderMirror, &GlobalNamespace::MirrorRendererSO::RenderMirror,
+                void, GlobalNamespace::MirrorRendererSO* self, UnityEngine::Vector3 camPosition,
+                UnityEngine::Quaternion camRotation, UnityEngine::Matrix4x4 camProjectionMatrix,
+                UnityEngine::Rect screenRect, UnityEngine::Vector3 planePosition, UnityEngine::Vector3 planeNormal) {
+  VivifyPart("MirrorRendererSO.RenderMirror", [&] {
+    auto& runtime = Runtime::Instance();
+    if (runtime.GetCurrentBeatmapData() == nullptr) return;
+    auto* camera = UnityEngine::Camera::get_current().unsafePtr();
+    if (!IsManagedAlive(camera) || !camera->get_stereoEnabled()) return;
+    float const x = screenRect.get_x(), width = screenRect.get_width();
+    bool half = false;
+    int eye = 0;
+    if (width > 0.0f && width <= 1.0f) {
+      half = width < 0.75f;
+      eye = x >= 0.25f ? 1 : 0;
+    } else if (width > 1.0f && self->____stereoTextureWidth > 0) {
+      half = width < self->____stereoTextureWidth * 0.75f;
+      eye = x >= self->____stereoTextureWidth * 0.25f ? 1 : 0;
+    }
+    if (!half) return;
+    auto const which = UnityEngine::Camera_StereoscopicEye(eye);
+    auto const view = camera->GetStereoViewMatrix(which);
+    auto inverse = UnityEngine::Matrix4x4::Inverse(view);
+    auto const position4 = inverse.GetColumn(3);
+    auto const back = inverse.GetColumn(2);
+    auto const up = inverse.GetColumn(1);
+    UnityEngine::Vector3 const position(position4.x, position4.y, position4.z);
+    auto const rotation = UnityEngine::Quaternion::LookRotation(UnityEngine::Vector3(-back.x, -back.y, -back.z),
+                                                                UnityEngine::Vector3(up.x, up.y, up.z));
+    void const* level = runtime.GetCurrentBeatmapData();
+    if (level != mirrorPoseLevel && eye == 1) {
+      mirrorPoseLevel = level;
+      float const dx = camPosition.x - position.x, dy = camPosition.y - position.y, dz = camPosition.z - position.z;
+      PaperLogger.info("Vivify mirror: eye pose used for the reflection (right eye): the game's was {:.3f} m and "
+                       "{:.2f} degrees from the eye's own; rect=({:.2f},{:.2f})",
+                       std::sqrt(dx * dx + dy * dy + dz * dz), UnityEngine::Quaternion::Angle(camRotation, rotation),
+                       x, width);
+    }
+    camPosition = position;
+    camRotation = rotation;
+    camProjectionMatrix = camera->GetStereoProjectionMatrix(which);
+  });
+  MirrorRendererSO_RenderMirror(self, camPosition, camRotation, camProjectionMatrix, screenRect, planePosition,
+                                planeNormal);
+}
 MAKE_HOOK_MATCH(MirrorRendererSO_PrepareForNextFrame, &GlobalNamespace::MirrorRendererSO::PrepareForNextFrame,
                 void, GlobalNamespace::MirrorRendererSO* self) {
   MirrorRendererSO_PrepareForNextFrame(self);
@@ -263,6 +320,7 @@ void LateLoad() {
   INSTALL_HOOK(PaperLogger, ImageEffectController_OnRenderImage);
   INSTALL_HOOK(PaperLogger, MirrorRendererSO_RenderMirrorTexture);
   INSTALL_HOOK(PaperLogger, MirrorRendererSO_PrepareForNextFrame);
+  INSTALL_HOOK(PaperLogger, MirrorRendererSO_RenderMirror);
   INSTALL_HOOK(PaperLogger, MirrorRendererSO_OnDisable);
   INSTALL_HOOK(PaperLogger, MirrorRendererSO_CreateOrUpdateMirrorCamera);
   INSTALL_HOOK(PaperLogger, VRCenterAdjust_Start);

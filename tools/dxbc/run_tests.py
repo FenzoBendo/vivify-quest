@@ -1149,6 +1149,28 @@ for label, body, expected in grab_operations:
     _, f, _, source = run("glsl-mv", pixel_shader(body, textures=(("_GrabTexture", 4),)))
     check(f"multiview grab {label} reads the eye layer", f.get("ok") == "1" and expected in source, source or f)
 
+# A Direct3D-built ComputeGrabScreenPos bakes the top-down grab convention as
+# a (0.5, -0.5) multiply; with flipScreenCopyY (set for passes that read a
+# GrabPass) the -0.5 becomes +0.5, OpenGL's convention (0.15.40). Other
+# constants, and every program without the option, are left alone.
+os.environ["VIVIFY_FLIP_SCREEN_COPY"] = "1"
+flip_cases = [
+    ("xzw lanes", m.insn(MUL, m.dest(OUTPUT, 0, 0xd), m.src(INPUT, 0), m.imm_float(0.5, 0.5, -0.5, 0.5)),
+     "vec3(0.5, 0.5, 0.5)", True),
+    ("xy lanes", m.insn(MUL, m.dest(OUTPUT, 0, 0x3), m.src(INPUT, 0), m.imm_float(0.5, -0.5, 0.0, 0.0)),
+     "vec2(0.5, 0.5)", True),
+    ("two negative lanes", m.insn(MUL, m.dest(OUTPUT, 0, 0x3), m.src(INPUT, 0), m.imm_float(-0.5, -0.5, 0.0, 0.0)),
+     "vec2(-0.5, -0.5)", False),
+    ("other constant", m.insn(MUL, m.dest(OUTPUT, 0, 0x3), m.src(INPUT, 0), m.imm_float(0.25, -0.5, 0.0, 0.0)),
+     "vec2(0.25, -0.5)", False),
+]
+for label, body, expected, _ in flip_cases:
+    _, f, _, source = run("glsl", pixel_shader(body, textures=()))
+    check(f"screen-copy flip: {label}", f.get("ok") == "1" and expected in source, source or f)
+del os.environ["VIVIFY_FLIP_SCREEN_COPY"]
+_, f, _, source = run("glsl", pixel_shader(flip_cases[1][1], textures=()))
+check("screen-copy flip is off by default", f.get("ok") == "1" and "vec2(0.5, -0.5)" in source, source or f)
+
 glslang_enabled = False
 truncation_failures = 0
 for length in range(0, len(vertex)):

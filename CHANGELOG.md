@@ -40,6 +40,40 @@ conversion cache version, and cached conversions are redone automatically.
   index existed are not deduplicated against; they leave with the 30-day
   retention.
 
+## [0.15.40] - 2026-11-19
+
+Not tried on a headset.
+
+### Fixed
+- Screen effects that read a GrabPass upside down: 743 Aether's shockwaves
+  (Swifter/VFX/ShockwaveParticle, a square showing the view flipped) and Get
+  Your Wish's window (FX/CensorWorldSpace, the scene behind it). Unity's
+  ComputeGrabScreenPos, compiled for Direct3D, bakes the top-down grab
+  convention into the bytecode as a multiply by (0.5, -0.5); the Quest's
+  OpenGL grab is stored bottom-up. In passes that read a GrabPass texture,
+  that constant now gets +0.5, as Unity's own OpenGL build of the shader has.
+  Shaders that flip with _ProjectionParams.x (Aether's glass rocks) carry no
+  such constant and are unchanged. Converted copies are redone once
+  (conversion version 32 -> 33).
+- The game's mirror (Lifelike's runway and water, luminescent's lake) turned
+  and slid with the head. It draws its reflection once per eye from a head
+  pose it works out itself; each half is now drawn from the eye's own view
+  and projection, the ones the frame uses. Where the game's pose was already
+  the eye's, nothing changes. The first draw of each level logs how far apart
+  they were ("Vivify mirror: eye pose used for the reflection ...").
+- 743 Aether's rift section ran at 25 fps on the Separate-Eye Renderer with
+  the eye images left at 100%: with "Separate Eyes Follow Effect Resolution"
+  on, the automatic size steps were off entirely. They now also apply in that
+  mode below the Effect Resolution %, while Auto Effect Resolution is on (its
+  default), and step 20% at a time while frames take twice as long as the
+  level's best.
+
+### Notes
+- Lifelike's runway text: on the headset TextMeshPro builds it completely
+  (911 characters, a 2888-vertex mesh, a sound SDF scale, the map's own shader
+  and font), so the text itself is not what is missing. The runway surface
+  under it is the game's track mirror, which the mirror fix above is about.
+
 ## [0.15.39] - 2026-11-19
 
 Diagnostics only. Not tried on a headset.

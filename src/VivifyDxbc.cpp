@@ -4263,7 +4263,44 @@ Program WithReflection(Program const& program, ExternalReflection const& reflect
 
 }  // namespace
 
+// See GlslOptions::flipScreenCopyY.
+static int FlipScreenCopyY(Program& program) {
+  int flipped = 0;
+  auto asFloat = [](uint32_t bits) { float f; std::memcpy(&f, &bits, sizeof f); return f; };
+  uint32_t plusHalf; { float h = 0.5f; std::memcpy(&plusHalf, &h, sizeof plusHalf); }
+  for (auto& instruction : program.instructions) {
+    if (instruction.opcode != OP_MUL && instruction.opcode != OP_MAD) continue;
+    if (instruction.operands.size() < 3) continue;
+    auto const& dest = instruction.operands[0];
+    if (dest.selectionMode != 0) continue;
+    for (size_t s = 1; s <= 2; s++) {
+      auto& source = instruction.operands[s];
+      if (source.type != kOperandImmediate32 || source.immediates.size() != 4) continue;
+      int minus = -1, plusCount = 0;
+      bool pattern = true;
+      for (int lane = 0; lane < 4 && pattern; lane++) {
+        if (!(dest.mask & (1u << lane))) continue;
+        float const value = asFloat(source.immediates[lane]);
+        if (value == 0.5f) plusCount++;
+        else if (value == -0.5f && minus < 0) minus = lane;
+        else pattern = false;
+      }
+      if (!pattern || minus < 0 || plusCount < 1) continue;
+      source.immediates[minus] = plusHalf;
+      flipped++;
+    }
+  }
+  return flipped;
+}
+
 GlslResult TranslateToGlsl(Program const& program, GlslOptions const& options) {
+  if (options.flipScreenCopyY) {
+    Program copy = program;
+    FlipScreenCopyY(copy);
+    GlslOptions rest = options;
+    rest.flipScreenCopyY = false;
+    return TranslateToGlsl(copy, rest);
+  }
   if (options.reflection != nullptr && program.constantBuffers.empty() && program.resourceBindings.empty()) {
     Program const patched = WithReflection(program, *options.reflection);
     GlslEmitter emitter(patched, options);
