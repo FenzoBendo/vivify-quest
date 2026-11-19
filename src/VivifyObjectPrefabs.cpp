@@ -2023,6 +2023,22 @@ void Runtime::ApplySaberTrailVisuals(GlobalNamespace::SaberModelController* smc,
     // path (0.15.32). Sabers and note replacements already are (0.15.35).
     SeparateEye::RememberRenderers(trailObject);
     RegisterSingleViewMaterials(trailObject);
+    // The trail's mesh is drawn by a SaberTrailRenderer the trail instantiates
+    // at the scene root (or beside the game's trail), not under trailObject,
+    // so the registration above found nothing; and its material is the
+    // renderer's own copy (set_material), which the Separate-Eye Renderer did
+    // not know. Map trails kept their two-eye shader and vanished whenever a
+    // geometry effect put the scene on the per-eye path (0.15.41).
+    if (auto* trailRenderer = followedTrail->____trailRenderer.unsafePtr(); IsAlive(trailRenderer)) {
+      auto* meshRenderer = static_cast<UnityEngine::Renderer*>(trailRenderer->____meshRenderer.unsafePtr());
+      if (IsAlive(meshRenderer)) {
+        auto materials = meshRenderer->get_sharedMaterials();
+        for (auto trailMaterial : materials) SeparateEye::RememberMaterial(trailMaterial.unsafePtr());
+      }
+      auto rendererObject = trailRenderer->get_gameObject();
+      SeparateEye::RememberRenderers(rendererObject.unsafePtr());
+      RegisterSingleViewMaterials(rendererObject.unsafePtr());
+    }
     replacement.spawnedObjects.emplace_back(trailObject);
     replacement.followedTrails.emplace_back(followedTrail);
   }

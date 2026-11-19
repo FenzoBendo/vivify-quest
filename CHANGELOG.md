@@ -40,6 +40,19 @@ conversion cache version, and cached conversions are redone automatically.
   index existed are not deduplicated against; they leave with the 30-day
   retention.
 
+## [0.15.41] - 2026-11-19
+
+Not tried on a headset.
+
+### Fixed
+- Map saber trails still vanished while a geometry effect was on screen
+  (0.15.35 did not fix it). A map trail's mesh is drawn by a
+  SaberTrailRenderer that the trail instantiates at the scene root (or beside
+  the game's own trail), not under the trail's object, so 0.15.35 registered
+  an object with no renderer in it; and the trail's material is the
+  renderer's own runtime copy, which the Separate-Eye Renderer did not know
+  and so never gave its single-eye shader. Both are now registered.
+
 ## [0.15.40] - 2026-11-19
 
 Not tried on a headset.
