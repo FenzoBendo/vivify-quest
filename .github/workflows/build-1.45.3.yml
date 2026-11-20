@@ -13,9 +13,9 @@ name: Build Quest Mod (Beat Saber 1.45.3)
 # qmods are uploaded with Vivify's: on the headset they replace the 1.40.8
 # ones, since nothing can download them.
 
+# build.yml now builds 1.45.3 too (job build-1-45-3) and releases it; this
+# copy runs by hand only, until it is turned into the next game version's.
 on:
-  push:
-    branches: [ main, master ]
   workflow_dispatch:
 
 permissions:
