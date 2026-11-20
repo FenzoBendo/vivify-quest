@@ -379,6 +379,18 @@ UnityEngine::Shader* FindDonor(UnityEngine::Material* source, int mode) {
 UnityEngine::Material* CopyMaterial(UnityEngine::Material* source, int eye) {
   if (!Alive(source) || !Alive(source->get_shader().unsafePtr())) return source;
   if (auto clone = cloneSources.find(source); clone != cloneSources.end()) source = clone->second;
+  // A copy of a map material made after its bundle loaded (a renderer's own
+  // instance) was never remembered, so it kept its original shader in both
+  // eye renders and shared that shader's one named screen grab: the right
+  // eye refracted the left eye's picture (Aether's glass rocks ghosted, and
+  // their per-eye grabs were never filled). Its shader is still one of the
+  // map's, so it is the map's material; game materials still never match.
+  if (!originals.contains(source) && sourceShaderAssets.contains(source->get_shader().unsafePtr())) {
+    RememberMaterial(source);
+    if (originals.contains(source))
+      PaperLogger.info("Vivify separate-eye: '{}' is a runtime copy of a map material; it gets the eye shaders too",
+                       std::string(source->get_name()));
+  }
   if (!originals.contains(source)) return source; // never substitute native game materials just by name
   auto const name = MaterialShaderName(source);
   auto* donor = FindDonor(source, eye);

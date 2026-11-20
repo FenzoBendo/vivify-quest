@@ -26,6 +26,19 @@ conversion cache version, and cached conversions are redone automatically.
   Reflection Probes") and a per-map one: a map's live reflections at the
   resolution and rate it asked for. Get Your Wish's water already ran that way
   in the last test (its probe is 512 px, every frame).
+- **Separate-Eye Renderer** is a per-map setting too (This Map). Aether
+  switches to it whenever its geometry-shader effects (the rift, wireframe,
+  triangle explosions) are on screen, at 34-41 ms frames against 8 ms
+  without, with up to 141 ms hitches each time it starts.
+
+### Fixed
+- Separate-Eye Renderer: a map material copied at runtime (a renderer's own
+  instance) never got the per-eye shaders. It drew both eyes with its
+  original shader and shared that shader's one named screen grab, which Unity
+  takes once a frame, so the right eye refracted the left eye's picture.
+  This is the likely cause of Aether's glass-rock ghosting, which only
+  appears while the rift is on screen and stays fixed to the view. The
+  per-eye grabs of the glass were never filled in the last test.
 
 ### Changed
 - Beat Saber 1.45.3 build: CustomJSONData and Tracks still have no qpm
