@@ -114,6 +114,8 @@ float GetEffectResolutionScale();
 // The Separate-Eye Renderer's eye images, as a percentage of the eye
 // resolution: automatic, or the Effect Resolution % (0.15.38).
 int GetSeparateEyeResolutionPercent();
+// Separate-Eye Renderer: keep the main camera's scene draw for depth (0.15.45).
+bool GetSeparateEyeKeepSceneDepth();
 int GetEffectResolutionPercent();
 // Culling (0.14.23): offscreen animators in a map's prefabs skip their update;
 // the main camera draws nothing beyond GetFarCullingDistance() metres (0: off).

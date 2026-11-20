@@ -543,6 +543,20 @@ void RuntimeBehaviour::Update() {
   Runtime::Instance().Update();
 }
 
+// Beat Saber 1.45.3 (URP): the Separate-Eye Renderer draws its eye images
+// here, after everything has moved and before URP renders the frame; camera
+// renders are not allowed inside URP's render loop.
+#ifdef VIVIFY_GAME_1_45_3
+void RuntimeBehaviour::LateUpdate() {
+  try {
+    SeparateEye::UrpPrepareFrame(VivifyMainCamera());
+  } catch (...) {
+    static bool reported = false;
+    if (!reported) { reported = true; PaperLogger.error("Vivify separate-eye (URP): frame preparation threw"); }
+  }
+}
+#endif
+
 void RuntimeBehaviour::OnDestroy() {
   Runtime::Instance().OnBehaviourDestroyed(this);
 }

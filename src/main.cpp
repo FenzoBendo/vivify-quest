@@ -84,6 +84,7 @@ constexpr std::string_view kFullReflectionProbesConfigKey = "fullReflectionProbe
 constexpr std::string_view kSingleViewMapCamerasConfigKey = "singleViewMapCameras";
 constexpr std::string_view kAutoEffectResolutionConfigKey = "autoEffectResolution";
 constexpr std::string_view kSeparateEyeFollowsEffectResolutionConfigKey = "separateEyeFollowsEffectResolution";
+constexpr std::string_view kSeparateEyeKeepSceneDepthConfigKey = "separateEyeKeepSceneDepth";
 constexpr std::string_view kCrashRecoveryConfigKey = "crashRecovery";
 // On by default from 0.15.19 (new key): it acts only while Replay renders.
 constexpr std::string_view kReplayRenderModeConfigKey = "replayRenderModeV2";
@@ -233,6 +234,11 @@ struct AutoEffectState {
 // 3 s ends the raising for the level, so it does not see-saw. Off by default,
 // "Separate Eyes Follow Effect Resolution" uses the Effect Resolution % instead.
 bool gSeparateEyeFollowsEffectResolution = false;
+// Separate-Eye Renderer: keep the main camera drawing the scene (0.15.45). Off
+// (default), the eye images replace its scene draw, two scene draws a frame,
+// and map effects that read scene depth get none. On, a third draw supplies
+// that depth -- slow.
+bool gSeparateEyeKeepSceneDepth = false;
 std::atomic<int> gSeparateEyePercent{100};
 struct SeparateEyeAutoState {
   double average = 0.0;
@@ -666,11 +672,7 @@ char const* SettingHint(std::u16string_view label) {
   static std::pair<std::u16string_view, char const*> const kHints[] = {
       {u"Separate-Eye Renderer (prototype)",
        "Experimental: renders depth and screen effects per eye, with separate shaders for map texture cameras. "
-       "Off by default; visual and performance validation required. Reuses native multiview when compatible, otherwise uses two replacement views. Effects stay at 100%."
-#ifdef VIVIFY_GAME_1_45_3
-       " Not available on Beat Saber 1.45.3 yet: it stays off there."
-#endif
-      },
+       "Off by default; visual and performance validation required. Reuses native multiview when compatible, otherwise uses two replacement views. Effects stay at 100%."},
       {u"Record Replays",
        "Records every single-player level to Mods/bl/replays, where the Replay mod (needed) finds it to watch "
        "or render. Nothing is uploaded and BeatLeader is not needed. Keeps the last 10 tries per map."},
@@ -691,6 +693,10 @@ char const* SettingHint(std::u16string_view label) {
       {u"Auto Effect Resolution",
        "Lowers the effect resolution by itself while a map runs slowly, and raises it again when there is "
        "room. The separate-eye prototype keeps effects at 100% and ignores automatic scaling."},
+      {u"Separate Eyes Keep Scene Depth (slow)",
+       "Separate-Eye Renderer on Beat Saber 1.45.3 only. Off (default): the two eye images replace the main camera's scene, so map "
+       "effects that read scene depth (fog, outlines, raymarching) get none. On: the main camera still draws the "
+       "scene for its depth, a third scene draw each frame -- much slower."},
       {u"Separate Eyes Follow Effect Resolution",
        "Separate-Eye Renderer only. Off (default): while a map is drawn once per eye and runs slowly, the eye "
        "images get smaller by themselves (down to 50%) and grow back when there is room, so moving things do "
@@ -1223,6 +1229,9 @@ void RegisterModSettings() {
             SetBoolConfigValue(kSeparateEyeFollowsEffectResolutionConfigKey, value,
                                gSeparateEyeFollowsEffectResolution);
           });
+          toggle(u"Separate Eyes Keep Scene Depth (slow)", gSeparateEyeKeepSceneDepth, [](bool value) {
+            SetBoolConfigValue(kSeparateEyeKeepSceneDepthConfigKey, value, gSeparateEyeKeepSceneDepth);
+          });
           toggle(u"Offscreen Culling (can hide objects)", gOffscreenCulling,
                  [](bool value) { SetBoolConfigValue(kOffscreenCullingConfigKey, value, gOffscreenCulling); });
           // Draws nothing farther than this from the player; 0 is off. Steps of
@@ -1573,20 +1582,12 @@ bool GetMultipassRenderingEnabled() {
   return false;
 }
 
-// The Separate-Eye Renderer and its triangle tessellation draw through the
-// built-in pipeline's camera callbacks (OnPreCull, OnRenderImage), which
-// Beat Saber 1.45.3 (URP) never calls; there they stay off, whatever the
-// setting says, so no other code takes their paths.
-#ifdef VIVIFY_GAME_1_45_3
-inline constexpr bool kSeparateEyeAvailable = false;
-#else
-inline constexpr bool kSeparateEyeAvailable = true;
-#endif
-bool GetExperimentalSeparateEye() { return kSeparateEyeAvailable && !kLiteBuild && gExperimentalSeparateEye; }
+bool GetExperimentalSeparateEye() { return !kLiteBuild && gExperimentalSeparateEye; }
+bool GetSeparateEyeKeepSceneDepth() { return !kLiteBuild && gSeparateEyeKeepSceneDepth; }
 // Per map too (0.15.24): it swapped Yoi Okashi's grass shader for its
 // tessellated build when turned on for Lifelike's grass.
 bool GetUniformTriangleTessellation() {
-  return kSeparateEyeAvailable && !kLiteBuild && MapBool(kUniformTriangleTessellationKey, gUniformTriangleTessellation);
+  return !kLiteBuild && MapBool(kUniformTriangleTessellationKey, gUniformTriangleTessellation);
 }
 
 bool GetSendLogs() {
@@ -2054,6 +2055,7 @@ void EnsureConfigDefaults() {
   needsWrite |= EnsureBoolConfigValue(kAutoEffectResolutionConfigKey, true, gAutoEffectResolution);
   needsWrite |= EnsureBoolConfigValue(kSeparateEyeFollowsEffectResolutionConfigKey, false,
                                       gSeparateEyeFollowsEffectResolution);
+  needsWrite |= EnsureBoolConfigValue(kSeparateEyeKeepSceneDepthConfigKey, false, gSeparateEyeKeepSceneDepth);
   needsWrite |= EnsureBoolConfigValue(kCrashRecoveryConfigKey, true, gCrashRecovery);
   needsWrite |= EnsureBoolConfigValue(kReplayRenderModeConfigKey, true, gReplayRenderMode);
   needsWrite |= EnsureBoolConfigValue(kBlitFixConfigKey, false, gBlitFix);

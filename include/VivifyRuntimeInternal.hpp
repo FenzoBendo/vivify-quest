@@ -27,6 +27,10 @@ namespace Vivify {
 // renders with (Camera.main then draws only the UI). Map effects, depth,
 // culling and the HUD go to whichever this returns.
 UnityEngine::Camera* VivifyMainCamera();
+// Records a copy of an ordinary (one-layer) image into layer `layer` of a
+// two-layer eye texture array, scaling to fit.
+void RecordEyeIntoLayer(UnityEngine::Rendering::CommandBuffer* commands, UnityEngine::RenderTexture* image,
+                        UnityEngine::RenderTexture* target, int layer);
 
 // Vivify's own effect and blit textures clamp (0.15.30). A new RenderTexture
 // or a pooled RenderTexture.GetTemporary one keeps whatever wrap mode it was

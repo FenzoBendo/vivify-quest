@@ -11,6 +11,8 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.45] - 2026-11-20
+
 ### Changed
 - Beat Saber 1.45.3 build: CustomJSONData and Tracks still have no qpm
   release for 1.45.3, so the `Build Quest Mod (Beat Saber 1.45.3)` workflow
@@ -50,9 +52,20 @@ conversion cache version, and cached conversions are redone automatically.
 - Beat Saber 1.45.3: the replay recorder is built again (1.45.3's
   cumulative score, its enum beatmap characteristic and environment lookup).
 - Beat Saber 1.45.3: the Separate-Eye Renderer (and Triangle Tessellation,
-  which runs inside it) stays off whatever the setting says. It draws from
-  camera callbacks URP never calls, so turned on it only changed which
-  materials other code picked.
+  which runs inside it) works there again. URP allows no camera renders
+  inside its render loop and calls no OnPreCull/OnRenderImage, so the two
+  eye images are drawn from LateUpdate, before the frame, and copied into
+  the main image's two layers in the game's post-processing pass; the map's
+  screen effects then run on both eyes together. By default the main
+  camera's own scene draw is dropped (two scene draws a frame), and map
+  effects that read scene depth get none. New setting **Separate Eyes Keep
+  Scene Depth (slow)** keeps it, for that depth, at three scene draws. With
+  the game's bloom/post-processing off the renderer stays off (nothing could
+  show the eye images; the log says why).
+- build.yml builds Beat Saber 1.45.3 as well (job `build-1-45-3`) and puts
+  its QMODs, named `-bs1.45.3`, and the CustomJSONData/Tracks/Noodle/Chroma
+  ports on the release. build-1.45.3.yml is now manual-only, for the next
+  game version.
 
 ### Added
 - Vivify Quest Converter, a desktop app for Windows, Linux and macOS

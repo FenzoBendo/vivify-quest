@@ -92,17 +92,25 @@ MAKE_HOOK_MATCH(MainEffectPostRenderPass_ExecutePyramidBloomPass, &GlobalNamespa
                 UnityEngine::Rendering::RenderGraphModule::UnsafeGraphContext* context) {
   VivifyPart("MainEffectPostRenderPass.ExecutePyramidBloomPass", [&] {
     auto& runtime = Runtime::Instance();
-    if (!IsUrpMainCamera() || data == nullptr || context == nullptr || !runtime.HasScreenEffects(0)) {
+    if (!IsUrpMainCamera() || data == nullptr || context == nullptr) {
       runtime.RecordScreenEffects(nullptr, nullptr, 0);  // still frees last frame's temporaries
       return;
     }
     auto* commands = UnityEngine::Rendering::CommandBufferHelpers::GetNativeCommandBuffer(context->cmd);
     auto* color = UnityEngine::Rendering::RenderGraphModule::TextureHandle::op_Implicit___UnityW___UnityEngine__RenderTexture_(
                       data->activeColorTexture).unsafe_ptr();
+    // The Separate-Eye Renderer's two eye images, drawn before the frame
+    // (UrpPrepareFrame), go into the main image first.
+    SeparateEye::NoteUrpPostPass(gUrpCamera, color);
+    SeparateEye::UrpPresent(commands, color);
     // All of the map's effects go before the game's bloom: where the game
     // writes its result is not known here, and effects drawn into a texture
     // it no longer reads would be lost. A post-bloom effect gets bloom over
     // it instead.
+    if (!runtime.HasScreenEffects(0)) {
+      runtime.RecordScreenEffects(nullptr, nullptr, 0);
+      return;
+    }
     runtime.RecordScreenEffects(commands, color, 0);
     if (!gReportedUrpEffects) {
       gReportedUrpEffects = true;

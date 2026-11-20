@@ -459,6 +459,11 @@ void Runtime::ApplyBlits(UnityEngine::RenderTexture* src, UnityEngine::RenderTex
   resources.completed = true;
 }
 
+void RecordEyeIntoLayer(UnityEngine::Rendering::CommandBuffer* commands, UnityEngine::RenderTexture* image,
+                        UnityEngine::RenderTexture* target, int layer) {
+  BlitSlice(commands, ToTargetId(image), -1, ToTargetId(target), layer);
+}
+
 bool Runtime::HasScreenEffects(int phase) const {
   if (GetDisableAllBlits() || _blitGuardAllOff || _isResetting || _pauseMenuActive || _currentBeatmapData == nullptr)
     return false;
