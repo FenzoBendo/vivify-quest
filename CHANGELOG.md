@@ -66,6 +66,11 @@ conversion cache version, and cached conversions are redone automatically.
   its QMODs, named `-bs1.45.3`, and the CustomJSONData/Tracks/Noodle/Chroma
   ports on the release. build-1.45.3.yml is now manual-only, for the next
   game version.
+- The Chroma port is built and uploaded too. The ports repository's copy is
+  bsq-ports/Chroma's v1.45.3 branch without its CMakeLists.txt, so it never
+  built (the step's failure was hidden by continue-on-error); the workflows
+  take that file from the same upstream commit, and give Chroma's build
+  script the NDK path where it looks. A missing port QMOD is now a warning.
 
 ### Added
 - Vivify Quest Converter, a desktop app for Windows, Linux and macOS

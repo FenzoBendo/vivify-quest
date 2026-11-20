@@ -320,11 +320,20 @@ jobs:
         qpm s build
         qpm qmod zip
 
+    # The ports repository's Chroma is bsq-ports/Chroma's v1.45.3 branch
+    # without its CMakeLists.txt, so it never built. Take that one file from
+    # the same upstream commit when it is missing. Chroma's build script also
+    # reads the NDK path from scripts/ndkpath.txt, not the root file qpm writes.
     - name: Build Chroma (port, for players)
       continue-on-error: true
       working-directory: ports/Chroma
       run: |
+        if [ ! -f CMakeLists.txt ]; then
+          curl -fsSL -o CMakeLists.txt \
+            https://raw.githubusercontent.com/bsq-ports/Chroma/4a0af13fc24c2d827333f1041097593c020e2033/CMakeLists.txt
+        fi
         qpm ndk resolve -d
+        cp ndkpath.txt scripts/ndkpath.txt
         qpm restore
         qpm s build
         qpm qmod zip
@@ -424,6 +433,18 @@ jobs:
           exit 1
         fi
         mv "${built[0]}" "./Vivify-Lite-v${{ steps.mod_version.outputs.version }}-bs1.45.3.qmod"
+
+    # Noodle Extensions and Chroma build with continue-on-error (Vivify does
+    # not need them); say so when one is missing from the upload.
+    - name: Check the ports' QMODs
+      run: |
+        for port in CustomJSONData Tracks NoodleExtensions Chroma; do
+          if ls ports/$port/*.qmod >/dev/null 2>&1; then
+            echo "$port: $(ls ports/$port/*.qmod)"
+          else
+            echo "::warning::the $port port produced no QMOD; it is not in the upload"
+          fi
+        done
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
