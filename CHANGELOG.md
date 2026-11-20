@@ -49,6 +49,10 @@ conversion cache version, and cached conversions are redone automatically.
   the headset view and captured nothing.
 - Beat Saber 1.45.3: the replay recorder is built again (1.45.3's
   cumulative score, its enum beatmap characteristic and environment lookup).
+- Beat Saber 1.45.3: the Separate-Eye Renderer (and Triangle Tessellation,
+  which runs inside it) stays off whatever the setting says. It draws from
+  camera callbacks URP never calls, so turned on it only changed which
+  materials other code picked.
 
 ### Added
 - Vivify Quest Converter, a desktop app for Windows, Linux and macOS

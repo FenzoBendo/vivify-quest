@@ -666,7 +666,11 @@ char const* SettingHint(std::u16string_view label) {
   static std::pair<std::u16string_view, char const*> const kHints[] = {
       {u"Separate-Eye Renderer (prototype)",
        "Experimental: renders depth and screen effects per eye, with separate shaders for map texture cameras. "
-       "Off by default; visual and performance validation required. Reuses native multiview when compatible, otherwise uses two replacement views. Effects stay at 100%."},
+       "Off by default; visual and performance validation required. Reuses native multiview when compatible, otherwise uses two replacement views. Effects stay at 100%."
+#ifdef VIVIFY_GAME_1_45_3
+       " Not available on Beat Saber 1.45.3 yet: it stays off there."
+#endif
+      },
       {u"Record Replays",
        "Records every single-player level to Mods/bl/replays, where the Replay mod (needed) finds it to watch "
        "or render. Nothing is uploaded and BeatLeader is not needed. Keeps the last 10 tries per map."},
@@ -1569,11 +1573,20 @@ bool GetMultipassRenderingEnabled() {
   return false;
 }
 
-bool GetExperimentalSeparateEye() { return !kLiteBuild && gExperimentalSeparateEye; }
+// The Separate-Eye Renderer and its triangle tessellation draw through the
+// built-in pipeline's camera callbacks (OnPreCull, OnRenderImage), which
+// Beat Saber 1.45.3 (URP) never calls; there they stay off, whatever the
+// setting says, so no other code takes their paths.
+#ifdef VIVIFY_GAME_1_45_3
+inline constexpr bool kSeparateEyeAvailable = false;
+#else
+inline constexpr bool kSeparateEyeAvailable = true;
+#endif
+bool GetExperimentalSeparateEye() { return kSeparateEyeAvailable && !kLiteBuild && gExperimentalSeparateEye; }
 // Per map too (0.15.24): it swapped Yoi Okashi's grass shader for its
 // tessellated build when turned on for Lifelike's grass.
 bool GetUniformTriangleTessellation() {
-  return !kLiteBuild && MapBool(kUniformTriangleTessellationKey, gUniformTriangleTessellation);
+  return kSeparateEyeAvailable && !kLiteBuild && MapBool(kUniformTriangleTessellationKey, gUniformTriangleTessellation);
 }
 
 bool GetSendLogs() {
