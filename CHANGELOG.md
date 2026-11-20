@@ -51,6 +51,26 @@ conversion cache version, and cached conversions are redone automatically.
   index existed are not deduplicated against; they leave with the 30-day
   retention.
 
+## [0.15.44] - 2026-11-20
+
+Not tried on a headset.
+
+### Fixed
+- 0.15.43 crashed the game the moment any screen effect ran: Lifelike at its
+  first frame, Get Your Wish when its underwater effect starts, and every other
+  map with a Blit (SIGABRT, std::terminate from CameraApplier::OnRenderImage).
+  0.15.43's new GC handles were compared with `SafePtr::ptr()`, which throws on
+  an empty handle instead of returning null, and the first effect frame always
+  had an empty one. They are now compared through plain copies of what they
+  hold.
+- CameraApplier::OnRenderImage catches anything thrown inside it, logs it (at
+  most five times) and draws that frame without effects. Unity calls it through
+  il2cpp, where an escaping C++ exception ends the game.
+
+### Notes
+- The other crash reports in the same upload are in other mods: CustomJSONData's
+  thread pool, BetterHaptics, and BSML / BeatLeader's modal views.
+
 ## [0.15.43] - 2026-11-19
 
 Not tried on a headset.
