@@ -65,7 +65,7 @@ jobs:
         q['workspace']['outBinaries'] = ['./build/libcustom-json-data.so']
         json.dump(q, open('qpm.json', 'w'), indent=2)
         PY
-        qpm ndk resolve
+        qpm ndk resolve -d
         qpm restore
         qpm s build
         qpm install --legacy
@@ -80,7 +80,7 @@ jobs:
         q['workspace']['outBinaries'] = ['./build/libtracks.so']
         json.dump(q, open('qpm.json', 'w'), indent=2)
         PY
-        qpm ndk resolve
+        qpm ndk resolve -d
         export ANDROID_NDK_HOME="$(cat ndkpath.txt)"
         qpm restore
         qpm s build
@@ -91,7 +91,7 @@ jobs:
       continue-on-error: true
       working-directory: ports/NoodleExtensions
       run: |
-        qpm ndk resolve
+        qpm ndk resolve -d
         qpm restore
         qpm s build
         qpm qmod zip
@@ -100,7 +100,7 @@ jobs:
       continue-on-error: true
       working-directory: ports/Chroma
       run: |
-        qpm ndk resolve
+        qpm ndk resolve -d
         qpm restore
         qpm s build
         qpm qmod zip
@@ -114,7 +114,7 @@ jobs:
 
     - name: Restore Vivify's 1.45.3 dependencies
       run: |
-        qpm ndk resolve
+        qpm ndk resolve -d
         qpm restore
 
     - name: Build the full mod
