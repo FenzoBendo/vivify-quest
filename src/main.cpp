@@ -964,6 +964,7 @@ bool GlobalAudioLink() { return gAudioLink; }
 bool GlobalGameMirrors() { return gGameMirrors; }
 bool GlobalFullReflectionProbes() { return gFullReflectionProbes; }
 bool GlobalForceBloom() { return gForceBloom; }
+bool GlobalSeparateEye() { return !kLiteBuild && gExperimentalSeparateEye; }
 MapSettingRow const kMapSettingRows[] = {
     {"Screen Effects", kDisableAllBlitsConfigKey, true, GlobalDisableAllBlits},
     {"Game Bloom", kForceBloomConfigKey, false, GlobalForceBloom},
@@ -977,6 +978,7 @@ MapSettingRow const kMapSettingRows[] = {
     {"Scene Depth", kSceneDepthConfigKey, false, GlobalSceneDepth},
     {"AudioLink", kAudioLinkConfigKey, false, GlobalAudioLink},
     {"Triangle Tessellation", kUniformTriangleTessellationKey, false, GlobalTriangleTessellation},
+    {"Separate-Eye Renderer", kExperimentalSeparateEyeKey, false, GlobalSeparateEye},
 };
 std::vector<SafePtrUnity<UnityEngine::UI::Button>> gMapSettingButtons;
 
@@ -1002,6 +1004,11 @@ void CycleMapSetting(size_t index) {
   else if ((row.inverted ? !*stored : *stored)) next = store(false);
   else next = std::nullopt;
   SetMapSetting(path, row.key, next);
+  // The renderer's eye shaders are prepared when the map is selected.
+  if (row.key == kExperimentalSeparateEyeKey) {
+    Vivify::SeparateEye::Reset(true);
+    Vivify::ReselectSelectedMap();
+  }
 }
 
 void RefreshThisMapRow() {
@@ -1612,7 +1619,9 @@ bool GetMultipassRenderingEnabled() {
   return false;
 }
 
-bool GetExperimentalSeparateEye() { return !kLiteBuild && gExperimentalSeparateEye; }
+// Per map too (0.15.45): Aether turns it on for its geometry-shader effects,
+// at several times the frame time; a map can have it off on its own.
+bool GetExperimentalSeparateEye() { return !kLiteBuild && MapBool(kExperimentalSeparateEyeKey, gExperimentalSeparateEye); }
 bool GetSeparateEyeKeepSceneDepth() { return !kLiteBuild && gSeparateEyeKeepSceneDepth; }
 // Per map too (0.15.24): it swapped Yoi Okashi's grass shader for its
 // tessellated build when turned on for Lifelike's grass.
