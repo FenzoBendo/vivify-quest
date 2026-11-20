@@ -513,6 +513,18 @@ private:
   std::vector<PlainMirror> _plainMirrors;
   float _lastMirrorSweep = -1.0f;
   void HideGameMirrors();
+  // Note Draw Distance (0.15.45): hides a map's note models while far away.
+  void UpdateNoteDrawDistance();
+  // Game Bloom (0.15.45): the game's bloom forced on for this level, and
+  // what the game had, put back at reset.
+  void ApplyForcedBloom();
+  void RestoreForcedBloom();
+  bool _bloomForced = false;
+  bool _bloomTried = false;
+  SafePtr<GlobalNamespace::MainEffectContainerSO> _bloomContainer;
+  SafePtr<GlobalNamespace::MainEffectSO> _bloomPreviousEffect;
+  bool _bloomPreviousEnabled = false;
+  bool _noteDrawDistanceActive = false;
   void RestoreGameMirrors();
   float _lastSaberLightSweep = 0.0f;
   void NoteReflectionProbes(UnityEngine::GameObject* root);

@@ -13,6 +13,20 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [0.15.45] - 2026-11-20
 
+### Added
+- **Game Bloom** (Effects, and per map under This Map): turns the game's bloom
+  on while a Vivify map plays, even with it off in the game's graphics
+  settings, and puts the game's choice back after. Lifelike's runway text
+  only shows with bloom.
+- **Note Draw Distance (m, 0 = off)** (Performance): a map's own note models
+  are not drawn while farther than this from you, separately from Far
+  Culling. For maps whose notes are expensive to draw (Aether's wireframe
+  notes).
+- **Full-Res Reflections** is now a main setting (it was Advanced' "Full
+  Reflection Probes") and a per-map one: a map's live reflections at the
+  resolution and rate it asked for. Get Your Wish's water already ran that way
+  in the last test (its probe is 512 px, every frame).
+
 ### Changed
 - Beat Saber 1.45.3 build: CustomJSONData and Tracks still have no qpm
   release for 1.45.3, so the `Build Quest Mod (Beat Saber 1.45.3)` workflow

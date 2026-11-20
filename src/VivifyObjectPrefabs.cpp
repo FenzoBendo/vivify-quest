@@ -1,6 +1,9 @@
 #include "VivifyRuntimeInternal.hpp"
 #include "VivifyRecovery.hpp"
 #include "GlobalNamespace/Mirror.hpp"
+#include "GlobalNamespace/BoolSO.hpp"
+#include "GlobalNamespace/MainEffectContainerSO.hpp"
+#include "GlobalNamespace/PyramidBloomMainEffectSO.hpp"
 #include <ctime>
 #include "UnityEngine/SystemInfo.hpp"
 #ifdef VIVIFY_GAME_1_45_3
@@ -932,9 +935,18 @@ void Runtime::PopActiveDebrisPrefabs() {
 
 }
 
+// Note Draw Distance: turn back on what it turned off.
+void ShowDistanceHiddenNote(VisualReplacement& replacement) {
+  for (auto* renderer : replacement.distanceDisabled)
+    if (IsManagedAlive(renderer)) renderer->set_enabled(true);
+  replacement.distanceDisabled.clear();
+  replacement.distanceHidden = false;
+}
+
 void Runtime::RestoreNoteVisuals(GlobalNamespace::NoteController* noteController) {
   auto it = _noteReplacements.find(noteController);
   if (it == _noteReplacements.end()) return;
+  ShowDistanceHiddenNote(it->second);  // never leave a pooled renderer off
   RestoreReplacementData(it->second);
   _noteReplacements.erase(it);
 }
@@ -1691,6 +1703,101 @@ void Runtime::RestoreVivifyFoveation() {
 // Only a mirror with no such material is hidden. Swept about once a second,
 // which catches a mirror the map turns on part way through; everything comes
 // back when the level ends.
+// Game Bloom: the game picks its main post effect (bloom and tone mapping,
+// or none) from the graphics settings into a MainEffectContainerSO. For a
+// Vivify map with Game Bloom on, the container gets the game's bloom effect
+// and its post-process switch on; both come back at reset. Once a level.
+void Runtime::ApplyForcedBloom() {
+  if (_bloomTried || _currentBeatmapData == nullptr || _isResetting || !GetForceBloom()) return;
+  _bloomTried = true;
+  try {
+    auto containers = UnityEngine::Resources::FindObjectsOfTypeAll<GlobalNamespace::MainEffectContainerSO*>();
+    auto blooms = UnityEngine::Resources::FindObjectsOfTypeAll<GlobalNamespace::PyramidBloomMainEffectSO*>();
+    if (containers.size() == 0 || blooms.size() == 0) {
+      PaperLogger.warn("Vivify Game Bloom: the game's {} not found; bloom left as the game has it",
+                       containers.size() == 0 ? "main effect container" : "bloom effect");
+      return;
+    }
+    auto* container = containers[0];
+    auto* bloom = static_cast<GlobalNamespace::MainEffectSO*>(blooms[0]);
+    auto current = container->_mainEffect;
+    auto enabled = container->_postProcessEnabled;
+    _bloomContainer = container;
+    _bloomPreviousEffect = current.unsafePtr();
+    _bloomPreviousEnabled = IsManagedAlive(enabled.unsafePtr()) && enabled->get_value();
+    container->_mainEffect = bloom;
+    if (IsManagedAlive(enabled.unsafePtr())) enabled->set_value(true);
+#ifdef VIVIFY_GAME_1_45_3
+    container->OnEnableChanged();  // 1.45.3 resolves the effect in use from the two
+#endif
+    _bloomForced = true;
+    PaperLogger.info("Vivify Game Bloom: bloom on for this map (the game had '{}', post-processing {})",
+                     IsManagedAlive(current.unsafePtr()) ? ToStdString(current->get_name()) : "<none>",
+                     _bloomPreviousEnabled ? "on" : "off");
+  } catch (...) {
+    PaperLogger.warn("Vivify Game Bloom: could not turn the game's bloom on");
+  }
+}
+
+void Runtime::RestoreForcedBloom() {
+  _bloomTried = false;
+  if (!_bloomForced) return;
+  _bloomForced = false;
+  try {
+    auto* container = _bloomContainer ? _bloomContainer.ptr() : nullptr;
+    if (IsManagedAlive(container)) {
+      container->_mainEffect = _bloomPreviousEffect ? _bloomPreviousEffect.ptr() : nullptr;
+      auto enabled = container->_postProcessEnabled;
+      if (IsManagedAlive(enabled.unsafePtr())) enabled->set_value(_bloomPreviousEnabled);
+#ifdef VIVIFY_GAME_1_45_3
+      container->OnEnableChanged();
+#endif
+    }
+  } catch (...) {
+    PaperLogger.warn("Vivify Game Bloom: putting the game's bloom setting back failed");
+  }
+  _bloomContainer = nullptr;
+  _bloomPreviousEffect = nullptr;
+}
+
+void Runtime::UpdateNoteDrawDistance() {
+  int const metres = GetNoteDrawDistance();
+  auto setHidden = [](VisualReplacement& replacement, bool hidden) {
+    if (replacement.distanceHidden == hidden) return;
+    replacement.distanceHidden = hidden;
+    if (hidden) {
+      // Renderer.forceRenderingOff is stripped from the game; turn off only
+      // what is on, and put back exactly that.
+      for (auto* renderer : replacement.replacementRenderers)
+        if (IsManagedAlive(renderer) && renderer->get_enabled()) {
+          renderer->set_enabled(false);
+          replacement.distanceDisabled.push_back(renderer);
+        }
+    } else {
+      ShowDistanceHiddenNote(replacement);
+    }
+  };
+  if (metres <= 0 || _currentBeatmapData == nullptr || _isResetting) {
+    // Off: show anything this hid, once.
+    if (_noteDrawDistanceActive) {
+      for (auto& [note, replacement] : _noteReplacements) setHidden(replacement, false);
+      _noteDrawDistanceActive = false;
+    }
+    return;
+  }
+  auto* camera = VivifyMainCamera();
+  if (!IsAlive(camera)) return;
+  _noteDrawDistanceActive = true;
+  auto const eye = camera->get_transform()->get_position();
+  float const limit = static_cast<float>(metres) * static_cast<float>(metres);
+  for (auto& [note, replacement] : _noteReplacements) {
+    if (!IsManagedAlive(note) || replacement.replacementRenderers.empty()) continue;
+    auto const at = note->get_transform()->get_position();
+    float const dx = at.x - eye.x, dy = at.y - eye.y, dz = at.z - eye.z;
+    setHidden(replacement, dx * dx + dy * dy + dz * dz > limit);
+  }
+}
+
 void Runtime::HideGameMirrors() {
   if (_currentBeatmapData == nullptr || _isResetting || GetGameMirrors()) return;
   float const now = UnityEngine::Time::get_unscaledTime();
@@ -2267,8 +2374,12 @@ void Runtime::SyncReplacementTintColors() {
 }
 
 void Runtime::RestoreAllVisualReplacements() {
-  for (auto& [_, replacement] : _noteReplacements) RestoreReplacementData(replacement);
+  for (auto& [_, replacement] : _noteReplacements) {
+    ShowDistanceHiddenNote(replacement);
+    RestoreReplacementData(replacement);
+  }
   _noteReplacements.clear();
+  _noteDrawDistanceActive = false;
   for (auto& [_, replacement] : _saberReplacements) RestoreReplacementData(replacement);
   _saberReplacements.clear();
   for (auto& [_, replacement] : _debrisReplacements) RestoreReplacementData(replacement);

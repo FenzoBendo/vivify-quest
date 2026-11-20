@@ -126,6 +126,11 @@ bool GetCrashGuard();
 // Whether a Quest bundle missing shaders is replaced by its converted PC build.
 bool GetUsePcBundleForMissingShaders();
 int GetFarCullingDistance();
+// Note Draw Distance (0.15.45): a map's note models farther than this many
+// metres from the player are not drawn; 0 is off.
+int GetNoteDrawDistance();
+// Game Bloom (0.15.45): force the game's bloom on during a Vivify map (per map).
+bool GetForceBloom();
 // Empty when the stand-in shader should be chosen automatically.
 std::string GetStandInShaderName();
 // Whether a map carrying the Vivify requirement still submits its score.

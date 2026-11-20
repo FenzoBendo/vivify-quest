@@ -388,6 +388,9 @@ struct VisualReplacement {
   GlobalNamespace::MaterialPropertyBlockController* materialPropertyBlockController = nullptr;
   ArrayW<UnityW<UnityEngine::Renderer>> originalMaterialBlockRenderers;
   bool hasOriginalMaterialBlockRenderers = false;
+  // Note Draw Distance: the replacement renderers it turned off while too far.
+  bool distanceHidden = false;
+  std::vector<UnityEngine::Renderer*> distanceDisabled;
   UnityEngine::Color lastSaberColor;
   bool hasLastSaberColor = false;
 
