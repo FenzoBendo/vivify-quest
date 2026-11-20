@@ -1,5 +1,8 @@
 #include "VivifyRuntimeInternal.hpp"
 #include "VivifyRecovery.hpp"
+#ifdef VIVIFY_GAME_1_45_3
+#include "UnityEngine/Rendering/RenderTextureSubElement.hpp"
+#endif
 #include <ctime>
 #include "VivifyComponents.hpp"
 #include "VivifySeparateEye.hpp"
@@ -1352,7 +1355,32 @@ void Runtime::HandleCreateCamera(rapidjson::Value const& json) {
 
   if (!wantColor && !wantDepth) {
     cam.camera->set_enabled(false);
-  } else {
+  }
+#ifdef VIVIFY_GAME_1_45_3
+  else {
+    // Beat Saber 1.45.3 (URP): no OnRenderImage to copy the picture out of,
+    // and a camera with no target texture would draw over the headset view.
+    // The camera renders into its own texture instead -- one image from the
+    // head's centre (URP renders a camera with a target texture without XR),
+    // which the map gets for both eyes, as Single-View Map Cameras does on
+    // 1.40.8. Its depth buffer is the depth texture.
+    auto const format = IsAlive(mainCamPtr) && mainCamPtr->get_allowHDR() ? UnityEngine::RenderTextureFormat::DefaultHDR
+                                                                          : UnityEngine::RenderTextureFormat::Default;
+    auto* rt = ClampWrap(UnityEngine::RenderTexture::New_ctor(w, h, 24, format));
+    if (IsAlive(rt) && rt->Create()) {
+      rt->set_name(StringW("VivifyCamera_" + name));
+      cam.colorRT = rt;
+      cam.camera->set_stereoTargetEye(UnityEngine::StereoTargetEyeMask::None);
+      cam.camera->set_targetTexture(rt);
+      cam.camera->set_enabled(true);
+    } else {
+      if (IsAlive(rt)) UnityEngine::Object::Destroy(rt);
+      cam.camera->set_enabled(false);
+      PaperLogger.warn("Vivify CreateCamera '{}': could not create its {}x{} texture", name, w, h);
+    }
+  }
+#else
+  else {
     // Deliberately no targetTexture and no SetTargetBuffers here.
     //
     // Upstream Vivify puts the capture in SecondaryCameraController and notes
@@ -1373,6 +1401,7 @@ void Runtime::HandleCreateCamera(rapidjson::Value const& json) {
       PaperLogger.warn("Vivify CreateCamera '{}': could not attach SecondaryCameraController", name);
     }
   }
+#endif
   if (GetVivifyDebugLogging()) {
     PaperLogger.info("Vivify CreateCamera: id='{}' colorTexture='{}' depthTexture='{}' size={}x{} mainEffect={}",
                      name, cam.textureName.value_or("<none>"), cam.depthTextureName.value_or("<none>"),
@@ -1418,7 +1447,7 @@ void Runtime::ReleaseSecondaryCameraData(SecondaryCameraData& data) {
     data.colorRT->Release();
     UnityEngine::Object::Destroy(data.colorRT);
   }
-  if (IsAlive(data.depthRT)) {
+  if (IsAlive(data.depthRT) && data.depthRT != data.colorRT) {
     data.depthRT->Release();
     UnityEngine::Object::Destroy(data.depthRT);
   }
@@ -1466,6 +1495,16 @@ void Runtime::BindSecondaryCameraTextures() {
   for (auto& [n, cam] : _secondaryCameras) {
     if (!IsAlive(cam.camera)) continue;
     if (!cam.texturePropertyId.has_value() && !cam.depthTexturePropertyId.has_value()) continue;
+#ifdef VIVIFY_GAME_1_45_3
+    // URP: the camera's own texture (HandleCreateCamera), colour and depth.
+    if (!IsAlive(cam.colorRT)) continue;
+    if (cam.texturePropertyId)
+      UnityEngine::Shader::SetGlobalTexture(cam.texturePropertyId.value(), static_cast<UnityEngine::Texture*>(cam.colorRT));
+    if (cam.depthTexturePropertyId)
+      UnityEngine::Shader::SetGlobalTexture(cam.depthTexturePropertyId.value(), cam.colorRT,
+                                            UnityEngine::Rendering::RenderTextureSubElement::Depth);
+    continue;
+#endif
 
     auto* go = cam.camera->get_gameObject().unsafePtr();
     if (!IsAlive(go)) continue;

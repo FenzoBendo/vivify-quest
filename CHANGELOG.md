@@ -41,6 +41,14 @@ conversion cache version, and cached conversions are redone automatically.
   now goes through Meta's OpenXR foveation feature (no eye-tracked mode).
   Mirrors are the game's own URP planar mirrors; the separate-eye renderer
   is not ported. Untested on a headset.
+- Beat Saber 1.45.3: map cameras (CreateCamera) render into their own
+  texture, colour and depth, which the map gets as before. URP renders a
+  camera with a target texture as one view from the head's centre, so both
+  eyes see the same image (what Single-View Map Cameras does on 1.40.8); the
+  game's bloom is not applied to it. Before this, such a camera drew over
+  the headset view and captured nothing.
+- Beat Saber 1.45.3: the replay recorder is built again (1.45.3's
+  cumulative score, its enum beatmap characteristic and environment lookup).
 
 ### Added
 - Vivify Quest Converter, a desktop app for Windows, Linux and macOS
