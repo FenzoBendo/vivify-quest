@@ -3,7 +3,10 @@
 #include "GlobalNamespace/Mirror.hpp"
 #include <ctime>
 #include "UnityEngine/SystemInfo.hpp"
-#ifndef VIVIFY_GAME_1_45_3
+#ifdef VIVIFY_GAME_1_45_3
+#include "GlobalNamespace/OVRManager.hpp"
+#include "Meta/XR/MetaXRFoveationFeature.hpp"
+#else
 #include "Unity/XR/Oculus/Utils.hpp"
 #endif
 #include "custom-types/shared/delegate.hpp"
@@ -1599,8 +1602,24 @@ void Runtime::HideForeignSaberLights() {
 // in the mod's own textures and are not foveated by this.
 void Runtime::ApplyVivifyFoveation() {
 #ifdef VIVIFY_GAME_1_45_3
-  // 1.45.3 runs on OpenXR (Meta XR); the Oculus XR plugin calls below do not exist there.
-  return;
+  // 1.45.3 runs on OpenXR: the level goes through Meta's foveation feature
+  // (same Off/Low/Medium/High/HighTop scale). It has no eye-tracked switch.
+  int const wanted = GetVivifyFoveationLevel();
+  if (wanted <= 0 || _foveationApplied) return;
+  try {
+    using Feature = Meta::XR::MetaXRFoveationFeature;
+    _foveationBefore = static_cast<int32_t>(Feature::get_foveatedRenderingLevel());
+    _foveationEyeTracked = false;
+    _eyeTrackedBefore = false;
+    _foveationApplied = true;
+    Feature::set_foveatedRenderingLevel(GlobalNamespace::OVRManager_FoveatedRenderingLevel(static_cast<int32_t>(wanted)));
+    PaperLogger.info("Vivify foveated rendering (OpenXR): level {} for this map (was {}), now {}; device '{}'", wanted,
+                     _foveationBefore, static_cast<int32_t>(Feature::get_foveatedRenderingLevel()),
+                     ToStdString(UnityEngine::SystemInfo::get_deviceModel()));
+  } catch (...) {
+    RestoreVivifyFoveation();
+    PaperLogger.warn("Vivify foveated rendering: the headset's foveation could not be set");
+  }
 #else
   int const wanted = GetVivifyFoveationLevel();
   if (wanted <= 0 || _foveationApplied) return;
@@ -1631,8 +1650,13 @@ void Runtime::ApplyVivifyFoveation() {
 
 void Runtime::RestoreVivifyFoveation() {
 #ifdef VIVIFY_GAME_1_45_3
-  // 1.45.3 runs on OpenXR (Meta XR); the Oculus XR plugin calls below do not exist there.
-  return;
+  if (!_foveationApplied) return;
+  try {
+    Meta::XR::MetaXRFoveationFeature::set_foveatedRenderingLevel(
+        GlobalNamespace::OVRManager_FoveatedRenderingLevel(static_cast<int32_t>(_foveationBefore)));
+    _foveationApplied = false;  // a failed restore is retried by a later reset
+  } catch (...) {
+  }
 #else
   if (!_foveationApplied) return;
   bool restored = false;

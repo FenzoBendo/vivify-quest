@@ -62,18 +62,22 @@ void RecordScreenParams(UnityEngine::Rendering::CommandBuffer* cb, UnityEngine::
 struct BlitResources {
   UnityEngine::Rendering::CommandBuffer* cb;
   std::vector<UnityEngine::RenderTexture*> temporaries;
+  // Recording into a render pass's buffer (RecordScreenEffects): leave the
+  // buffer alone and hand the temporaries over for release a frame later.
+  std::vector<SafePtr<UnityEngine::RenderTexture>>* deferred = nullptr;
   SafePtr<UnityEngine::RenderTexture> active = UnityEngine::RenderTexture::get_active().unsafePtr();
   UnityEngine::Vector4 screenParams = UnityEngine::Shader::GetGlobalVector(ScreenParamsId());
   bool completed = false;
   explicit BlitResources(UnityEngine::Rendering::CommandBuffer* commands) : cb(commands) {}
   ~BlitResources() noexcept {
     // Discard partially recorded work before releasing any texture it names.
-    try { cb->Clear(); } catch (...) { PaperLogger.error("Vivify: clearing failed blit commands failed"); }
+    if (!deferred) try { cb->Clear(); } catch (...) { PaperLogger.error("Vivify: clearing failed blit commands failed"); }
     try {
       if (!completed) UnityEngine::Shader::SetGlobalVector(ScreenParamsId(), screenParams);
       UnityEngine::RenderTexture::set_active(active && IsManagedAlive(active.ptr()) ? active.ptr() : nullptr);
     } catch (...) { PaperLogger.error("Vivify: restoring blit state failed"); }
     for (auto* texture : temporaries) {
+      if (deferred) { if (IsManagedAlive(texture)) deferred->emplace_back(texture); continue; }
       try { if (IsManagedAlive(texture)) UnityEngine::RenderTexture::ReleaseTemporary(texture); }
       catch (...) { PaperLogger.error("Vivify: releasing a blit temporary failed"); }
     }
@@ -204,14 +208,22 @@ void Runtime::ApplyBlits(UnityEngine::RenderTexture* src, UnityEngine::RenderTex
                                            : (phase == 2 ? _postEffects.empty()
                                                          : (_preEffects.empty() && _postEffects.empty())));
   auto destId = (dest != nullptr) ? ToTargetId(dest) : CameraTargetId();
+  // Recording into a render pass (RecordScreenEffects) the commands run later
+  // with the rest of the frame; executing them here would run them first.
+  bool const recording = _recordingCommands != nullptr;
+  auto flush = [&](UnityEngine::Rendering::CommandBuffer* commands) {
+    if (recording) return;
+    UnityEngine::Graphics::ExecuteCommandBuffer(commands);
+    commands->Clear();
+  };
   if (passthroughOnly) {
+    if (recording && src == dest) return;
     auto* cb = ImmediateCommandBuffer();
     RecordBlit(cb, ToTargetId(src), destId);
-    UnityEngine::Graphics::ExecuteCommandBuffer(cb);
-    cb->Clear();
+    flush(cb);
     return;
   }
-  if (TryApplyStereoBlits(src, dest, cameraName, phase)) return;
+  if (!recording && TryApplyStereoBlits(src, dest, cameraName, phase)) return;
   auto* main = EnsureCachedBlitTexture(_mainBlitTexture, _mainBlitAllocation, src);
   auto* scratch = EnsureCachedBlitTexture(_scratchBlitTexture, _scratchBlitAllocation, src);
   for (int i = 0; i < 2; i++) {
@@ -222,15 +234,16 @@ void Runtime::ApplyBlits(UnityEngine::RenderTexture* src, UnityEngine::RenderTex
     }
   }
   if (!IsAlive(main) || !IsAlive(scratch)) {
+    if (recording && src == dest) return;
     auto* cb = ImmediateCommandBuffer();
     RecordBlit(cb, ToTargetId(src), destId);
-    UnityEngine::Graphics::ExecuteCommandBuffer(cb);
-    cb->Clear();
+    flush(cb);
     return;
   }
 
   auto* cb = ImmediateCommandBuffer();
   BlitResources resources(cb);
+  if (recording) resources.deferred = &_recordedTemporaries[0];
   auto& selfBlitTemps = resources.temporaries;
 
   RecordBlit(cb, ToTargetId(src), ToTargetId(main));
@@ -251,7 +264,9 @@ void Runtime::ApplyBlits(UnityEngine::RenderTexture* src, UnityEngine::RenderTex
   // Flat-screen guard (0.15.7): now and then, a 16x16 sample of the picture
   // before and after this call's effects (BlitGuard* below).
   std::vector<UnityEngine::Material*> guardMaterials;
-  if (GetFlatScreenGuard() && !GetExperimentalSeparateEye()) {
+  // The guard reads its samples back right after executing; a recorded frame
+  // has not run yet.
+  if (GetFlatScreenGuard() && !GetExperimentalSeparateEye() && !recording) {
     auto collect = [&](std::vector<ActiveBlitEffect> const& effects) {
       for (auto const& effect : effects) {
         if (effect.data.material != nullptr && effect.data.source == kMainCameraId &&
@@ -341,10 +356,17 @@ void Runtime::ApplyBlits(UnityEngine::RenderTexture* src, UnityEngine::RenderTex
         // would pick that while the stereo keyword is on, so what is queued
         // so far is run, the keyword goes off for the two eye blits, and
         // comes back on after (0.15.8).
-        UnityEngine::Graphics::ExecuteCommandBuffer(cb);
-        cb->Clear();
+        flush(cb);
         bool const stereoWasOn = UnityEngine::Shader::IsKeywordEnabled(StringW("STEREO_MULTIVIEW_ON"));
-        BlitPolicy::DrawSingleView(stereoWasOn, [](bool enabled) {
+        BlitPolicy::DrawSingleView(stereoWasOn, [&](bool enabled) {
+          // Recorded, the keyword has to change at that point in the buffer.
+#ifdef VIVIFY_GAME_1_45_3
+          if (recording) {
+            if (enabled) cb->EnableShaderKeyword(StringW("STEREO_MULTIVIEW_ON"));
+            else cb->DisableShaderKeyword(StringW("STEREO_MULTIVIEW_ON"));
+            return;
+          }
+#endif
           if (enabled) UnityEngine::Shader::EnableKeyword(StringW("STEREO_MULTIVIEW_ON"));
           else UnityEngine::Shader::DisableKeyword(StringW("STEREO_MULTIVIEW_ON"));
         }, [&] {
@@ -361,8 +383,7 @@ void Runtime::ApplyBlits(UnityEngine::RenderTexture* src, UnityEngine::RenderTex
             }
             BlitSlice(cb, eyeOutId, -1, target, eye);
           }
-          UnityEngine::Graphics::ExecuteCommandBuffer(cb);
-          cb->Clear();
+          flush(cb);
         });
         return;
       }
@@ -430,10 +451,40 @@ void Runtime::ApplyBlits(UnityEngine::RenderTexture* src, UnityEngine::RenderTex
   if (guardProbe) emitProbe(mainCurrent, _blitGuardOut);
   setScreenParams(src);
   RecordBlit(cb, ToTargetId(mainCurrent), destId);
-  UnityEngine::Graphics::ExecuteCommandBuffer(cb);
-  cb->Clear();
+  flush(cb);
   if (guardProbe) BlitGuardEvaluate(guardMaterials, src);
   resources.completed = true;
+}
+
+bool Runtime::HasScreenEffects(int phase) const {
+  if (GetDisableAllBlits() || _blitGuardAllOff || _isResetting || _pauseMenuActive || _currentBeatmapData == nullptr)
+    return false;
+  if (phase == 1) return !_preEffects.empty();
+  if (phase == 2) return !_postEffects.empty();
+  return !_preEffects.empty() || !_postEffects.empty();
+}
+
+void Runtime::RecordScreenEffects(UnityEngine::Rendering::CommandBuffer* commands, UnityEngine::RenderTexture* color,
+                                  int phase) {
+  // Temporaries recorded last frame have been submitted with it by now.
+  int const frame = UnityEngine::Time::get_frameCount();
+  if (frame != _recordedTemporariesFrame) {
+    for (auto& texture : _recordedTemporaries[1]) {
+      try { if (texture && IsManagedAlive(texture.ptr())) UnityEngine::RenderTexture::ReleaseTemporary(texture.ptr()); }
+      catch (...) {}
+    }
+    _recordedTemporaries[1] = std::move(_recordedTemporaries[0]);
+    _recordedTemporaries[0].clear();
+    _recordedTemporariesFrame = frame;
+  }
+  if (commands == nullptr || !IsAlive(color) || !HasScreenEffects(phase)) return;
+  if (phase != 2) CacheMainRenderDescriptor(color);
+  struct Recording {
+    UnityEngine::Rendering::CommandBuffer*& slot;
+    Recording(UnityEngine::Rendering::CommandBuffer*& s, UnityEngine::Rendering::CommandBuffer* c) : slot(s) { slot = c; }
+    ~Recording() { slot = nullptr; }
+  } const recording(_recordingCommands, commands);
+  ApplyBlits(color, color, std::string(kMainCameraId), phase);
 }
 
 // Flat-screen guard (0.15.7). Reported: a map's screen effect turns the whole
@@ -617,6 +668,7 @@ void Runtime::ReleaseMidRenderTextures() {
 }
 
 UnityEngine::Rendering::CommandBuffer* Runtime::ImmediateCommandBuffer() {
+  if (_recordingCommands) return _recordingCommands;  // never cleared: it is the frame's
   if (!_immediateCommandBuffer) {
     _immediateCommandBuffer.emplace(UnityEngine::Rendering::CommandBuffer::New_ctor());
   }

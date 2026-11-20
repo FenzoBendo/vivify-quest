@@ -180,6 +180,12 @@ public:
   // phase: -1 passthrough, 0 all, 1 pre-main-effect, 2 post-main-effect.
   void ApplyBlits(UnityEngine::RenderTexture* src, UnityEngine::RenderTexture* dest,
                   std::string const& cameraName = "_Main", int phase = 0);
+  // Beat Saber 1.45.3 (URP): the main camera's screen effects, recorded into
+  // `commands` -- the game's own post-processing pass's command buffer, which
+  // runs later in the frame -- on the camera's colour texture, in place.
+  // phase as ApplyBlits (1 before the game's bloom, 2 after).
+  void RecordScreenEffects(UnityEngine::Rendering::CommandBuffer* commands, UnityEngine::RenderTexture* color, int phase);
+  bool HasScreenEffects(int phase) const;
 
 #ifndef VIVIFY_GAME_1_45_3
   bool ShouldBypassImageEffect(GlobalNamespace::ImageEffectController* controller);
@@ -610,6 +616,12 @@ private:
   // Reused buffers (see ImmediateCommandBuffer): one for immediate blits, one
   // per mid-render bucket, which is attached to the camera for a frame at most.
   SafePtr<UnityEngine::Rendering::CommandBuffer> _immediateCommandBuffer;
+  // Set while RecordScreenEffects runs: ApplyBlits records into it and never
+  // executes or clears it. Its temporaries are released a frame later, once
+  // the commands that use them have been submitted.
+  UnityEngine::Rendering::CommandBuffer* _recordingCommands = nullptr;
+  std::vector<SafePtr<UnityEngine::RenderTexture>> _recordedTemporaries[2];
+  int _recordedTemporariesFrame = -1;
   std::array<SafePtr<UnityEngine::Rendering::CommandBuffer>, kMidRenderOrderCount> _midCommandBufferPool;
   UnityEngine::Camera* _midCommandBufferCamera = nullptr;
 

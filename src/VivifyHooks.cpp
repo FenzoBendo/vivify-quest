@@ -6,6 +6,18 @@
 #include "VivifyCameraBindings.hpp"
 #include "GlobalNamespace/MirrorRendererSO.hpp"
 #include "GlobalNamespace/UserInfo.hpp"
+#ifdef VIVIFY_GAME_1_45_3
+#include "GlobalNamespace/MainEffectPostRenderPass.hpp"
+#include "GlobalNamespace/MainEffectRendererFeature.hpp"
+#include "UnityEngine/Rendering/CommandBufferHelpers.hpp"
+#include "UnityEngine/Rendering/RenderGraphModule/RasterGraphContext.hpp"
+#include "UnityEngine/Rendering/RenderGraphModule/TextureHandle.hpp"
+#include "UnityEngine/Rendering/RenderGraphModule/UnsafeGraphContext.hpp"
+#include "UnityEngine/Rendering/Universal/CameraData.hpp"
+#include "UnityEngine/Rendering/Universal/RenderingData.hpp"
+#include "UnityEngine/Rendering/Universal/ScriptableRenderer.hpp"
+#include "UnityEngine/Rendering/UnsafeCommandBuffer.hpp"
+#endif
 
 using namespace Vivify;
 using namespace std::string_view_literals;
@@ -44,6 +56,76 @@ void VivifyPart(std::string_view hook, Body&& body) {
     }
   }
 }
+
+#ifdef VIVIFY_GAME_1_45_3
+// Screen effects on Beat Saber 1.45.3, which renders with URP's render graph:
+// there is no OnRenderImage. The game's own post-processing pass
+// (MainEffectPostRenderPass, bloom and tone mapping) runs once per camera
+// with a command buffer and that camera's colour texture; Vivify's Blit
+// effects are recorded into the same buffer just before the game's, so they
+// run at that point of the frame.
+namespace {
+// The camera URP is setting up passes for. URP records and executes one
+// camera's render graph before setting up the next, so the passes that run
+// next are this camera's. Only compared, never dereferenced.
+UnityEngine::Camera* gUrpCamera = nullptr;
+bool gReportedUrpEffects = false;
+bool gReportedNoPostProcess = false;
+bool IsUrpMainCamera() {
+  auto* main = VivifyMainCamera();
+  return gUrpCamera != nullptr && main != nullptr && gUrpCamera == main;
+}
+}  // namespace
+
+MAKE_HOOK_MATCH(MainEffectRendererFeature_AddRenderPasses, &GlobalNamespace::MainEffectRendererFeature::AddRenderPasses, void,
+                GlobalNamespace::MainEffectRendererFeature* self, UnityEngine::Rendering::Universal::ScriptableRenderer* renderer,
+                by_ref<UnityEngine::Rendering::Universal::RenderingData> renderingData) {
+  VivifyPart("MainEffectRendererFeature.AddRenderPasses", [&] {
+    auto camera = renderingData->cameraData.get_camera();
+    gUrpCamera = (*camera).unsafe_ptr();
+  });
+  MainEffectRendererFeature_AddRenderPasses(self, renderer, renderingData);
+}
+
+MAKE_HOOK_MATCH(MainEffectPostRenderPass_ExecutePyramidBloomPass, &GlobalNamespace::MainEffectPostRenderPass::ExecutePyramidBloomPass,
+                void, GlobalNamespace::MainEffectPostRenderPass_PassData* data,
+                UnityEngine::Rendering::RenderGraphModule::UnsafeGraphContext* context) {
+  VivifyPart("MainEffectPostRenderPass.ExecutePyramidBloomPass", [&] {
+    auto& runtime = Runtime::Instance();
+    if (!IsUrpMainCamera() || data == nullptr || context == nullptr || !runtime.HasScreenEffects(0)) {
+      runtime.RecordScreenEffects(nullptr, nullptr, 0);  // still frees last frame's temporaries
+      return;
+    }
+    auto* commands = UnityEngine::Rendering::CommandBufferHelpers::GetNativeCommandBuffer(context->cmd);
+    auto* color = UnityEngine::Rendering::RenderGraphModule::TextureHandle::op_Implicit___UnityW___UnityEngine__RenderTexture_(
+                      data->activeColorTexture).unsafe_ptr();
+    // All of the map's effects go before the game's bloom: where the game
+    // writes its result is not known here, and effects drawn into a texture
+    // it no longer reads would be lost. A post-bloom effect gets bloom over
+    // it instead.
+    runtime.RecordScreenEffects(commands, color, 0);
+    if (!gReportedUrpEffects) {
+      gReportedUrpEffects = true;
+      PaperLogger.info("Vivify screen effects (URP): recorded into the game's post-processing pass on '{}'",
+                       IsManagedAlive(color) ? std::string(color->get_name()) : std::string("<no colour texture>"));
+    }
+  });
+  MainEffectPostRenderPass_ExecutePyramidBloomPass(data, context);
+}
+
+MAKE_HOOK_MATCH(MainEffectPostRenderPass_ExecuteNoPostProcessPass, &GlobalNamespace::MainEffectPostRenderPass::ExecuteNoPostProcessPass,
+                void, GlobalNamespace::MainEffectPostRenderPass_PassData* data,
+                UnityEngine::Rendering::RenderGraphModule::RasterGraphContext context) {
+  VivifyPart("MainEffectPostRenderPass.ExecuteNoPostProcessPass", [&] {
+    if (!gReportedNoPostProcess && IsUrpMainCamera() && Runtime::Instance().HasScreenEffects(0)) {
+      gReportedNoPostProcess = true;
+      PaperLogger.warn("Vivify screen effects (URP): this map has screen effects, but the game's bloom/post-processing "
+                       "is off, and Vivify draws them in that pass; they are not shown");
+    }
+  });
+  MainEffectPostRenderPass_ExecuteNoPostProcessPass(data, context);
+}
+#endif
 
 #ifdef VIVIFY_GAME_1_45_3
 // 1.45.3 added the model name.
@@ -323,6 +405,11 @@ namespace Vivify {
 void LateLoad() {
   Runtime::Instance().LateLoad();
   INSTALL_HOOK(PaperLogger, SaberModelController_Init);
+#ifdef VIVIFY_GAME_1_45_3
+  INSTALL_HOOK(PaperLogger, MainEffectRendererFeature_AddRenderPasses);
+  INSTALL_HOOK(PaperLogger, MainEffectPostRenderPass_ExecutePyramidBloomPass);
+  INSTALL_HOOK(PaperLogger, MainEffectPostRenderPass_ExecuteNoPostProcessPass);
+#endif
   INSTALL_HOOK(PaperLogger, GameNoteController_Init);
   INSTALL_HOOK(PaperLogger, BombNoteController_Init);
   INSTALL_HOOK(PaperLogger, BurstSliderGameNoteController_Init);

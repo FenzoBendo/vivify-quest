@@ -31,6 +31,16 @@ conversion cache version, and cached conversions are redone automatically.
   Oculus foveation setting does nothing (the game is on OpenXR), and the
   replay recorder is not built. The 1.40.8 build is unchanged.
   `scripts/host-syntax-check.sh` checks 1.45.3 with VIVIFY_HOST_TARGET=1.45.3.
+- Beat Saber 1.45.3: screen effects (Blit events) are drawn again. URP has
+  no OnRenderImage, so Vivify records them into the game's own
+  post-processing pass (MainEffectPostRenderPass), on the main camera's
+  colour texture, into that pass's command buffer, just before the game's
+  bloom. Every effect goes before bloom there, including ones a map puts
+  after it. With the game's bloom/post-processing turned off that pass does
+  not run and effects are not shown (the log says so). Foveated rendering
+  now goes through Meta's OpenXR foveation feature (no eye-tracked mode).
+  Mirrors are the game's own URP planar mirrors; the separate-eye renderer
+  is not ported. Untested on a headset.
 
 ### Added
 - Vivify Quest Converter, a desktop app for Windows, Linux and macOS
