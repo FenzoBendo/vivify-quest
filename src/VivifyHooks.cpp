@@ -45,27 +45,33 @@ void VivifyPart(std::string_view hook, Body&& body) {
   }
 }
 
+#ifdef VIVIFY_GAME_1_45_3
+// 1.45.3 added the model name.
+MAKE_HOOK_MATCH(SaberModelController_Init, &GlobalNamespace::SaberModelController::Init, void, GlobalNamespace::SaberModelController* self, UnityEngine::Transform* parent, GlobalNamespace::Saber* saber, UnityEngine::Color trailTintColor, StringW modelName) {
+  SaberModelController_Init(self, parent, saber, trailTintColor, modelName);
+#else
 MAKE_HOOK_MATCH(SaberModelController_Init, &GlobalNamespace::SaberModelController::Init, void, GlobalNamespace::SaberModelController* self, UnityEngine::Transform* parent, GlobalNamespace::Saber* saber, UnityEngine::Color trailTintColor) {
   SaberModelController_Init(self, parent, saber, trailTintColor);
+#endif
   VivifyPart("SaberModelController.Init", [&] { Runtime::Instance().TrackSaberModel(self, saber, parent); });
 }
 
-MAKE_HOOK_MATCH(GameNoteController_Init, &GlobalNamespace::GameNoteController::Init, void, GlobalNamespace::GameNoteController* self, GlobalNamespace::NoteData* noteData, ByRef<GlobalNamespace::NoteSpawnData> noteSpawnData, GlobalNamespace::NoteVisualModifierType noteVisualModifierType, float cutAngleTolerance, float uniformScale) {
+MAKE_HOOK_MATCH(GameNoteController_Init, &GlobalNamespace::GameNoteController::Init, void, GlobalNamespace::GameNoteController* self, GlobalNamespace::NoteData* noteData, VIVIFY_IN(GlobalNamespace::NoteSpawnData) noteSpawnData, GlobalNamespace::NoteVisualModifierType noteVisualModifierType, float cutAngleTolerance, float uniformScale) {
   GameNoteController_Init(self, noteData, noteSpawnData, noteVisualModifierType, cutAngleTolerance, uniformScale);
   VivifyPart("GameNoteController.Init", [&] { Runtime::Instance().ApplyNotePrefabFor(self); });
 }
 
-MAKE_HOOK_MATCH(BombNoteController_Init, &GlobalNamespace::BombNoteController::Init, void, GlobalNamespace::BombNoteController* self, GlobalNamespace::NoteData* noteData, ByRef<GlobalNamespace::NoteSpawnData> noteSpawnData) {
+MAKE_HOOK_MATCH(BombNoteController_Init, &GlobalNamespace::BombNoteController::Init, void, GlobalNamespace::BombNoteController* self, GlobalNamespace::NoteData* noteData, VIVIFY_IN(GlobalNamespace::NoteSpawnData) noteSpawnData) {
   BombNoteController_Init(self, noteData, noteSpawnData);
   VivifyPart("BombNoteController.Init", [&] { Runtime::Instance().ApplyNotePrefabFor(self); });
 }
 
-MAKE_HOOK_MATCH(BurstSliderGameNoteController_Init, &GlobalNamespace::BurstSliderGameNoteController::Init, void, GlobalNamespace::BurstSliderGameNoteController* self, GlobalNamespace::NoteData* noteData, ByRef<GlobalNamespace::NoteSpawnData> noteSpawnData, GlobalNamespace::NoteVisualModifierType noteVisualModifierType, float uniformScale) {
+MAKE_HOOK_MATCH(BurstSliderGameNoteController_Init, &GlobalNamespace::BurstSliderGameNoteController::Init, void, GlobalNamespace::BurstSliderGameNoteController* self, GlobalNamespace::NoteData* noteData, VIVIFY_IN(GlobalNamespace::NoteSpawnData) noteSpawnData, GlobalNamespace::NoteVisualModifierType noteVisualModifierType, float uniformScale) {
   BurstSliderGameNoteController_Init(self, noteData, noteSpawnData, noteVisualModifierType, uniformScale);
   VivifyPart("BurstSliderGameNoteController.Init", [&] { Runtime::Instance().ApplyNotePrefabFor(self); });
 }
 
-MAKE_HOOK_MATCH(NoteCutCoreEffectsSpawner_SpawnNoteCutEffect, &GlobalNamespace::NoteCutCoreEffectsSpawner::SpawnNoteCutEffect, void, GlobalNamespace::NoteCutCoreEffectsSpawner* self, ByRef<GlobalNamespace::NoteCutInfo> noteCutInfo, GlobalNamespace::NoteController* noteController, int32_t sparkleParticlesCount, int32_t explosionParticlesCount) {
+MAKE_HOOK_MATCH(NoteCutCoreEffectsSpawner_SpawnNoteCutEffect, &GlobalNamespace::NoteCutCoreEffectsSpawner::SpawnNoteCutEffect, void, GlobalNamespace::NoteCutCoreEffectsSpawner* self, VIVIFY_IN(GlobalNamespace::NoteCutInfo) noteCutInfo, GlobalNamespace::NoteController* noteController, int32_t sparkleParticlesCount, int32_t explosionParticlesCount) {
 
   bool pushed = false;
   VivifyPart("NoteCutCoreEffectsSpawner.SpawnNoteCutEffect", [&] {
@@ -103,6 +109,7 @@ MAKE_HOOK_MATCH(AlwaysVisibleQuad_OnEnable, &GlobalNamespace::AlwaysVisibleQuad:
   });
 }
 
+#ifndef VIVIFY_GAME_1_45_3
 MAKE_HOOK_MATCH(ImageEffectController_OnRenderImage, &GlobalNamespace::ImageEffectController::OnRenderImage, void, GlobalNamespace::ImageEffectController* self, UnityEngine::RenderTexture* src, UnityEngine::RenderTexture* dest) {
   bool bypass = false;
   VivifyPart("ImageEffectController.OnRenderImage", [&] { bypass = Runtime::Instance().ShouldBypassImageEffect(self); });
@@ -112,7 +119,11 @@ MAKE_HOOK_MATCH(ImageEffectController_OnRenderImage, &GlobalNamespace::ImageEffe
   }
   ImageEffectController_OnRenderImage(self, src, dest);
 }
+#endif
 
+// 1.45.3 renders mirrors with URP's PlanarMirrorRenderPass; these hooks
+// are for 1.40.8's MirrorRendererSO.
+#ifndef VIVIFY_GAME_1_45_3
 MAKE_HOOK_MATCH(MirrorRendererSO_RenderMirrorTexture, &GlobalNamespace::MirrorRendererSO::RenderMirrorTexture,
                 UnityW<UnityEngine::Texture>, GlobalNamespace::MirrorRendererSO* self,
                 UnityEngine::Vector3 position, UnityEngine::Vector3 normal) {
@@ -205,6 +216,7 @@ MAKE_HOOK_MATCH(MirrorRendererSO_CreateOrUpdateMirrorCamera, &GlobalNamespace::M
     if (SeparateEye::IsPrivateMirror(self)) Runtime::Instance().ConfigureMirrorCamera(self->____mirrorCamera.unsafePtr());
   });
 }
+#endif
 
 MAKE_HOOK_MATCH(PauseController_Pause, &GlobalNamespace::PauseController::Pause, void, GlobalNamespace::PauseController* self) {
   VivifyPart("PauseController_Pause", [] { Runtime::Instance().SetPauseMenuActive(true); });
@@ -317,12 +329,16 @@ void LateLoad() {
   INSTALL_HOOK(PaperLogger, NoteCutCoreEffectsSpawner_SpawnNoteCutEffect);
   INSTALL_HOOK(PaperLogger, NoteDebris_Init);
   INSTALL_HOOK(PaperLogger, AlwaysVisibleQuad_OnEnable);
+#ifndef VIVIFY_GAME_1_45_3
   INSTALL_HOOK(PaperLogger, ImageEffectController_OnRenderImage);
+#endif
+#ifndef VIVIFY_GAME_1_45_3
   INSTALL_HOOK(PaperLogger, MirrorRendererSO_RenderMirrorTexture);
   INSTALL_HOOK(PaperLogger, MirrorRendererSO_PrepareForNextFrame);
   INSTALL_HOOK(PaperLogger, MirrorRendererSO_RenderMirror);
   INSTALL_HOOK(PaperLogger, MirrorRendererSO_OnDisable);
   INSTALL_HOOK(PaperLogger, MirrorRendererSO_CreateOrUpdateMirrorCamera);
+#endif
   INSTALL_HOOK(PaperLogger, VRCenterAdjust_Start);
   INSTALL_HOOK(PaperLogger, VRCenterAdjust_OnEnable);
   INSTALL_HOOK(PaperLogger, VRCenterAdjust_OnDisable);

@@ -330,7 +330,11 @@ void Runtime::RunVisualCheck(std::string_view when) {
                                        mirrorRenderer->____stereoTextureWidth, mirrorRenderer->____stereoTextureHeight,
                                        mirrorRenderer->____monoTextureWidth, mirrorRenderer->____monoTextureHeight,
                                        mirrorRenderer->____maxAntiAliasing,
+#ifdef VIVIFY_GAME_1_45_3
+                                       std::string("n/a"))
+#else
                                        BoolText(mirrorRenderer->____disableDepthTexture))
+#endif
                          : std::string("<none>"));
   }
   if (mirrorsShown > 0) {

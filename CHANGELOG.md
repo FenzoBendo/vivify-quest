@@ -21,6 +21,16 @@ conversion cache version, and cached conversions are redone automatically.
   on qpackages.com; targets/1.45.3.json now names NDK r29, as the ports use.
   The ports' qmods are uploaded with Vivify's, since nothing can download
   them on the headset. Temporary, until upstream releases.
+- Beat Saber 1.45.3 build: Vivify now compiles against beatsaber-hook 9
+  (`include/VivifyCompat.hpp` maps the older SafePtr, il2cpp_utils,
+  il2cpp_functions and Configuration names onto it, in C++23), bs-cordl 4503
+  and metacore-bs, which now holds MetaCore's Beat Saber API. 1.45.3 renders
+  with URP, so the parts of Vivify built on the old pipeline do not run there
+  yet: the game's ImageEffectController and MirrorRendererSO hooks are left
+  out, the main post effect is a plain copy where Vivify used to run it, the
+  Oculus foveation setting does nothing (the game is on OpenXR), and the
+  replay recorder is not built. The 1.40.8 build is unchanged.
+  `scripts/host-syntax-check.sh` checks 1.45.3 with VIVIFY_HOST_TARGET=1.45.3.
 
 ### Added
 - Vivify Quest Converter, a desktop app for Windows, Linux and macOS

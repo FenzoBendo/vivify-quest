@@ -185,9 +185,9 @@ bool Runtime::TryApplyStereoBlits(UnityEngine::RenderTexture* src, UnityEngine::
   } catch (std::exception const& ex) {
     static bool reported = false;
     if (!reported) { PaperLogger.error("Vivify stereo screen effect processing failed: {}", ex.what()); reported = true; }
-  } catch (Il2CppExceptionWrapper const& ex) {
+  } catch (Vivify::CSharpException const& ex) {
     static bool reported = false;
-    if (!reported) { PaperLogger.error("Vivify stereo screen effect processing failed: {}", il2cpp_utils::ExceptionToString(ex.ex)); reported = true; }
+    if (!reported) { PaperLogger.error("Vivify stereo screen effect processing failed: {}", Vivify::ExceptionText(ex)); reported = true; }
   } catch (...) {
     static bool reported = false;
     if (!reported) { PaperLogger.error("Vivify stereo screen effect processing failed with a native exception"); reported = true; }
@@ -357,7 +357,7 @@ void Runtime::ApplyBlits(UnityEngine::RenderTexture* src, UnityEngine::RenderTex
             if (pass >= 0) {
               cb->Blit(eyeInId, eyeOutId, eyeMaterial, pass);
             } else {
-              cb->Blit(eyeInId, eyeOutId, eyeMaterial);
+              cb->Blit(eyeInId, eyeOutId, eyeMaterial, -1);  // pass -1: all passes, as the 3-argument form
             }
             BlitSlice(cb, eyeOutId, -1, target, eye);
           }
@@ -1501,10 +1501,7 @@ bool Runtime::RenderSecondaryCameraMainEffect(UnityEngine::Camera* camera, Unity
   // Match PC MainEffectRenderer: execute while THIS secondary camera's
   // depth, projection and bloom data are current. Filtering it later from
   // the main camera also processed stale captures repeatedly.
-  mainEffectController->OnPreRender();
-  try { mainEffectSO->Render(src, dest, mainEffectController->____fadeValue); }
-  catch (...) { mainEffectController->OnPostRender(); throw; }
-  mainEffectController->OnPostRender();
+  RenderMainEffect(mainEffectController, mainEffectSO.ptr(), src, dest);
   return true;
 }
 
@@ -2083,6 +2080,7 @@ void Runtime::DestroyCameraApplier() {
   _cameraApplierGO = nullptr;
 }
 
+#ifndef VIVIFY_GAME_1_45_3
 bool Runtime::ShouldBypassImageEffect(GlobalNamespace::ImageEffectController* controller) {
   if (_cameraApplier == nullptr || !UnityEngine::Object::op_Implicit_bool(_cameraApplier) ||
       !_cameraApplier->get_enabled() || !_cameraApplier->hasMainEffect) {
@@ -2093,5 +2091,6 @@ bool Runtime::ShouldBypassImageEffect(GlobalNamespace::ImageEffectController* co
   if (IsManagedAlive(mainEffect) && mainEffect->_imageEffectController.unsafePtr() == controller) return true;
   return controller->get_gameObject().unsafePtr() == _cameraApplierGO;
 }
+#endif
 
 }

@@ -3,7 +3,9 @@
 #include "GlobalNamespace/Mirror.hpp"
 #include <ctime>
 #include "UnityEngine/SystemInfo.hpp"
+#ifndef VIVIFY_GAME_1_45_3
 #include "Unity/XR/Oculus/Utils.hpp"
+#endif
 #include "custom-types/shared/delegate.hpp"
 #include "System/Delegate.hpp"
 #include "UnityEngine/CameraType.hpp"
@@ -960,7 +962,7 @@ void Runtime::DisableOriginalRenderers(UnityEngine::GameObject* gameObject, Visu
   }
 }
 
-void Runtime::DisableOriginalRenderers(ArrayW<UnityEngine::Renderer*, Array<UnityEngine::Renderer*>*> const& renderers,
+void Runtime::DisableOriginalRenderers(ArrayW<UnityEngine::Renderer*> const& renderers,
                                        VisualReplacement& replacement) {
   if (!renderers) return;
   for (int i = 0; i < renderers.size(); i++) {
@@ -1596,6 +1598,10 @@ void Runtime::HideForeignSaberLights() {
 // game had set comes back when the level ends. Screen effects are worked out
 // in the mod's own textures and are not foveated by this.
 void Runtime::ApplyVivifyFoveation() {
+#ifdef VIVIFY_GAME_1_45_3
+  // 1.45.3 runs on OpenXR (Meta XR); the Oculus XR plugin calls below do not exist there.
+  return;
+#else
   int const wanted = GetVivifyFoveationLevel();
   if (wanted <= 0 || _foveationApplied) return;
   try {
@@ -1620,9 +1626,14 @@ void Runtime::ApplyVivifyFoveation() {
     RestoreVivifyFoveation();
     PaperLogger.warn("Vivify foveated rendering: the headset's foveation could not be set");
   }
+#endif
 }
 
 void Runtime::RestoreVivifyFoveation() {
+#ifdef VIVIFY_GAME_1_45_3
+  // 1.45.3 runs on OpenXR (Meta XR); the Oculus XR plugin calls below do not exist there.
+  return;
+#else
   if (!_foveationApplied) return;
   bool restored = false;
   try {
@@ -1642,6 +1653,7 @@ void Runtime::RestoreVivifyFoveation() {
   }
   // A later reset retries failed restoration using the original snapshot.
   if (restored && !_foveationEyeTracked) _foveationApplied = false;
+#endif
 }
 
 // Game Mirrors off for this map (0.15.18). The game's mirrors render a

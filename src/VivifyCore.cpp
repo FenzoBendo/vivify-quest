@@ -153,8 +153,21 @@ void Runtime::OnBehaviourDestroyed(RuntimeBehaviour* behaviour) {
   if (_behaviour == behaviour) _behaviour = nullptr;
 }
 
+#ifdef VIVIFY_GAME_1_45_3
+// Tracks for 1.45.3 lends its BpmController only for the length of a beatmap
+// callback, so durations in beats are resolved while one runs.
+static thread_local GlobalNamespace::BeatmapCallbacksController* gCallbackController = nullptr;
+#endif
+
 void Runtime::OnCustomEventStatic(GlobalNamespace::BeatmapCallbacksController* callbackController,
                                   CustomJSONData::CustomEventData* customEventData) {
+#ifdef VIVIFY_GAME_1_45_3
+  struct Scope {
+    GlobalNamespace::BeatmapCallbacksController* previous = gCallbackController;
+    explicit Scope(GlobalNamespace::BeatmapCallbacksController* now) { gCallbackController = now; }
+    ~Scope() { gCallbackController = previous; }
+  } const scope(callbackController);
+#endif
   Runtime::Instance().HandleCustomEvent(callbackController, customEventData);
 }
 
@@ -334,10 +347,16 @@ void Runtime::DetectSongRestart() {
 }
 
 float Runtime::CurrentBpm() const {
+#ifdef VIVIFY_GAME_1_45_3
+  if (!gCallbackController) return 0.0f;
+  auto* bpmController = TracksStatic::GetBpmController(gCallbackController);
+  return bpmController ? bpmController->get_currentBpm() : 0.0f;
+#else
   if (TracksStatic::bpmController) {
     return TracksStatic::bpmController->get_currentBpm();
   }
   return 0.0f;
+#endif
 }
 
 float Runtime::DurationBeatsToSeconds(float durationBeats) const {

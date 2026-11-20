@@ -14,12 +14,26 @@
     "scotland2": "^0.1.7",
     "paper2_scotland2": "^4.8.0",
     "metacore": "^2.0.6",
+    "metacore-bs": "^1.0.1",
     "web-utils": "^0.6.10",
     "sombrero": "^0.2.0"
   },
   "qpmDependencyData": {
-    "sombrero": {"headersOnly": true}
+    "sombrero": {
+      "headersOnly": true
+    }
   },
-  "removedQpmDependencies": ["config-utils", "conditional-dependencies", "cpp-semver"],
-  "mustTargetThisGame": ["custom-json-data", "tracks", "songcore", "bsml", "metacore"]
+  "removedQpmDependencies": [
+    "config-utils",
+    "conditional-dependencies",
+    "cpp-semver"
+  ],
+  "mustTargetThisGame": [
+    "custom-json-data",
+    "tracks",
+    "songcore",
+    "bsml",
+    "metacore",
+    "metacore-bs"
+  ]
 }

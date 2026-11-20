@@ -17,7 +17,7 @@
 #include <thread>
 #include <vector>
 
-#include "beatsaber-hook/shared/config/rapidjson-utils.hpp"
+#include "VivifyCompat.hpp"
 
 namespace Vivify::LogUpload {
 namespace {

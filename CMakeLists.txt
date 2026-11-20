@@ -64,6 +64,9 @@ endif()
 if("${VIVIFY_GAME_TARGET}" STREQUAL "1.45.3")
 	message(STATUS "Vivify: building for Beat Saber 1.45.3")
 	add_compile_definitions(VIVIFY_GAME_1_45_3=1)
+	# beatsaber-hook 9 uses std::expected (i2c::result), which is C++23.
+	set(CMAKE_CXX_STANDARD 23)
+	set(CMAKE_CXX_STANDARD_REQUIRED 23)
 endif()
 
 set(COMPILE_ID ${CMAKE_PROJECT_NAME})

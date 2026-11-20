@@ -154,8 +154,10 @@ uint64_t materialEpoch = 1;
 int timingFrames = 0;
 double preparationMs = 0, peakPreparationMs = 0;
 std::mutex conversionMutex;
+#ifndef VIVIFY_GAME_1_45_3
 using MirrorCache = System::Collections::Generic::Dictionary_2<GlobalNamespace::MirrorRendererSO_CameraTransformData,
                                                               UnityW<UnityEngine::RenderTexture>>;
+#endif
 struct MirrorCopy {
   SafePtr<UnityEngine::Camera> camera;
   SafePtr<GlobalNamespace::MirrorRendererSO> renderer;
@@ -584,6 +586,10 @@ void SyncEyeBloom(UnityEngine::Camera* main, UnityEngine::Camera* eyeCamera, int
 
 bool IsPrivateMirror(GlobalNamespace::MirrorRendererSO* renderer) { return privateMirrors.contains(renderer); }
 GlobalNamespace::MirrorRendererSO* MirrorForCurrentCamera(GlobalNamespace::MirrorRendererSO* source) {
+#ifdef VIVIFY_GAME_1_45_3
+  // 1.45.3 (URP) has no MirrorRendererSO render hooks to call this.
+  return source;
+#else
   auto& runtime = Runtime::Instance();
   if (!GetExperimentalSeparateEye() || !Alive(source) || privateMirrors.contains(source) ||
       !runtime.GetCurrentBeatmapData() || runtime.IsResetting() || runtime.IsPauseMenuActive()) return source;
@@ -623,6 +629,7 @@ GlobalNamespace::MirrorRendererSO* MirrorForCurrentCamera(GlobalNamespace::Mirro
   copy->____bloomPrePassEffect = source->____bloomPrePassEffect;
   copy->____clearDepthShader = source->____clearDepthShader;
   return copy;
+#endif
 }
 std::vector<GlobalNamespace::MirrorRendererSO*> MirrorCopies(GlobalNamespace::MirrorRendererSO* source) {
   std::vector<GlobalNamespace::MirrorRendererSO*> result;
@@ -707,8 +714,8 @@ bool BeginTextureCamera(void const* owner, UnityEngine::Camera* camera) {
       SetMaterials(swap, ArrayW<UnityEngine::Material*>(swap.eye[0].ptr()));
     }
     return true;
-  } catch (Il2CppExceptionWrapper const& ex) {
-    reportFailure(il2cpp_utils::ExceptionToString(ex.ex));
+  } catch (Vivify::CSharpException const& ex) {
+    reportFailure(Vivify::ExceptionText(ex));
   } catch (std::exception const& ex) {
     reportFailure(ex.what());
   } catch (...) { reportFailure("unknown native exception"); }
@@ -1346,9 +1353,9 @@ bool RenderEyes(UnityEngine::Camera* main, UnityEngine::RenderTextureDescriptor 
           GlobalNamespace::MainEffectController* controller;
           explicit SceneEffect(CameraApplier* effects) : controller(effects->hasMainEffect && Alive(effects->mainEffectController)
                                                                     ? effects->mainEffectController : nullptr) {
-            if (controller) controller->OnPreRender();
+            if (controller) MainEffectPreRender(controller);
           }
-          ~SceneEffect() { if (Alive(controller)) controller->OnPostRender(); }
+          ~SceneEffect() { if (Alive(controller)) MainEffectPostRender(controller); }
         } sceneEffect(effects);
         camera->Render();
       }
