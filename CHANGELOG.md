@@ -11,6 +11,17 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+### Changed
+- Beat Saber 1.45.3 build: CustomJSONData and Tracks still have no qpm
+  release for 1.45.3, so the `Build Quest Mod (Beat Saber 1.45.3)` workflow
+  now builds them (and, for players, Noodle Extensions and Chroma) from the
+  ports in trail-b1az3r/ports- and installs them into the runner's local qpm
+  repository before building Vivify. `scripts/use-game-target.py --local
+  PACKAGE=VERSION` takes such locally built packages without looking them up
+  on qpackages.com; targets/1.45.3.json now names NDK r29, as the ports use.
+  The ports' qmods are uploaded with Vivify's, since nothing can download
+  them on the headset. Temporary, until upstream releases.
+
 ### Added
 - Vivify Quest Converter, a desktop app for Windows, Linux and macOS
   (`converter/gui`). It is the command-line converter in a window: drop PC
