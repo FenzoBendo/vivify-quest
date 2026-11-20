@@ -64,6 +64,9 @@ template <typename T>
 inline by_ref<T> byref(T& value) { return by_ref<T>(value); }
 #define VIVIFY_IN(T) by_ref<T const>
 
+// beatsaber-hook 6's csTypeOf(T*): the System.Type of T.
+#define csTypeOf(...) reinterpret_cast<::System::Type*>(::i2c::cs_type_of<__VA_ARGS__>().convert())
+
 // beatsaber-hook 6's classof(T*).
 #define classof(...) (::i2c::class_of<__VA_ARGS__>())
 

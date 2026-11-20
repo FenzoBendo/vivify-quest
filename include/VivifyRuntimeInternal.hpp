@@ -27,6 +27,10 @@ namespace Vivify {
 // renders with (Camera.main then draws only the UI). Map effects, depth,
 // culling and the HUD go to whichever this returns.
 UnityEngine::Camera* VivifyMainCamera();
+// Records a copy of an ordinary (one-layer) image into layer `layer` of a
+// two-layer eye texture array, scaling to fit.
+void RecordEyeIntoLayer(UnityEngine::Rendering::CommandBuffer* commands, UnityEngine::RenderTexture* image,
+                        UnityEngine::RenderTexture* target, int layer);
 
 // Vivify's own effect and blit textures clamp (0.15.30). A new RenderTexture
 // or a pooled RenderTexture.GetTemporary one keeps whatever wrap mode it was
@@ -180,6 +184,12 @@ public:
   // phase: -1 passthrough, 0 all, 1 pre-main-effect, 2 post-main-effect.
   void ApplyBlits(UnityEngine::RenderTexture* src, UnityEngine::RenderTexture* dest,
                   std::string const& cameraName = "_Main", int phase = 0);
+  // Beat Saber 1.45.3 (URP): the main camera's screen effects, recorded into
+  // `commands` -- the game's own post-processing pass's command buffer, which
+  // runs later in the frame -- on the camera's colour texture, in place.
+  // phase as ApplyBlits (1 before the game's bloom, 2 after).
+  void RecordScreenEffects(UnityEngine::Rendering::CommandBuffer* commands, UnityEngine::RenderTexture* color, int phase);
+  bool HasScreenEffects(int phase) const;
 
 #ifndef VIVIFY_GAME_1_45_3
   bool ShouldBypassImageEffect(GlobalNamespace::ImageEffectController* controller);
@@ -503,6 +513,18 @@ private:
   std::vector<PlainMirror> _plainMirrors;
   float _lastMirrorSweep = -1.0f;
   void HideGameMirrors();
+  // Note Draw Distance (0.15.45): hides a map's note models while far away.
+  void UpdateNoteDrawDistance();
+  // Game Bloom (0.15.45): the game's bloom forced on for this level, and
+  // what the game had, put back at reset.
+  void ApplyForcedBloom();
+  void RestoreForcedBloom();
+  bool _bloomForced = false;
+  bool _bloomTried = false;
+  SafePtr<GlobalNamespace::MainEffectContainerSO> _bloomContainer;
+  SafePtr<GlobalNamespace::MainEffectSO> _bloomPreviousEffect;
+  bool _bloomPreviousEnabled = false;
+  bool _noteDrawDistanceActive = false;
   void RestoreGameMirrors();
   float _lastSaberLightSweep = 0.0f;
   void NoteReflectionProbes(UnityEngine::GameObject* root);
@@ -610,6 +632,12 @@ private:
   // Reused buffers (see ImmediateCommandBuffer): one for immediate blits, one
   // per mid-render bucket, which is attached to the camera for a frame at most.
   SafePtr<UnityEngine::Rendering::CommandBuffer> _immediateCommandBuffer;
+  // Set while RecordScreenEffects runs: ApplyBlits records into it and never
+  // executes or clears it. Its temporaries are released a frame later, once
+  // the commands that use them have been submitted.
+  UnityEngine::Rendering::CommandBuffer* _recordingCommands = nullptr;
+  std::vector<SafePtr<UnityEngine::RenderTexture>> _recordedTemporaries[2];
+  int _recordedTemporariesFrame = -1;
   std::array<SafePtr<UnityEngine::Rendering::CommandBuffer>, kMidRenderOrderCount> _midCommandBufferPool;
   UnityEngine::Camera* _midCommandBufferCamera = nullptr;
 

@@ -11,6 +11,22 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.45] - 2026-11-20
+
+### Added
+- **Game Bloom** (Effects, and per map under This Map): turns the game's bloom
+  on while a Vivify map plays, even with it off in the game's graphics
+  settings, and puts the game's choice back after. Lifelike's runway text
+  only shows with bloom.
+- **Note Draw Distance (m, 0 = off)** (Performance): a map's own note models
+  are not drawn while farther than this from you, separately from Far
+  Culling. For maps whose notes are expensive to draw (Aether's wireframe
+  notes).
+- **Full-Res Reflections** is now a main setting (it was Advanced' "Full
+  Reflection Probes") and a per-map one: a map's live reflections at the
+  resolution and rate it asked for. Get Your Wish's water already ran that way
+  in the last test (its probe is 512 px, every frame).
+
 ### Changed
 - Beat Saber 1.45.3 build: CustomJSONData and Tracks still have no qpm
   release for 1.45.3, so the `Build Quest Mod (Beat Saber 1.45.3)` workflow
@@ -31,6 +47,44 @@ conversion cache version, and cached conversions are redone automatically.
   Oculus foveation setting does nothing (the game is on OpenXR), and the
   replay recorder is not built. The 1.40.8 build is unchanged.
   `scripts/host-syntax-check.sh` checks 1.45.3 with VIVIFY_HOST_TARGET=1.45.3.
+- Beat Saber 1.45.3: screen effects (Blit events) are drawn again. URP has
+  no OnRenderImage, so Vivify records them into the game's own
+  post-processing pass (MainEffectPostRenderPass), on the main camera's
+  colour texture, into that pass's command buffer, just before the game's
+  bloom. Every effect goes before bloom there, including ones a map puts
+  after it. With the game's bloom/post-processing turned off that pass does
+  not run and effects are not shown (the log says so). Foveated rendering
+  now goes through Meta's OpenXR foveation feature (no eye-tracked mode).
+  Mirrors are the game's own URP planar mirrors; the separate-eye renderer
+  is not ported. Untested on a headset.
+- Beat Saber 1.45.3: map cameras (CreateCamera) render into their own
+  texture, colour and depth, which the map gets as before. URP renders a
+  camera with a target texture as one view from the head's centre, so both
+  eyes see the same image (what Single-View Map Cameras does on 1.40.8); the
+  game's bloom is not applied to it. Before this, such a camera drew over
+  the headset view and captured nothing.
+- Beat Saber 1.45.3: the replay recorder is built again (1.45.3's
+  cumulative score, its enum beatmap characteristic and environment lookup).
+- Beat Saber 1.45.3: the Separate-Eye Renderer (and Triangle Tessellation,
+  which runs inside it) works there again. URP allows no camera renders
+  inside its render loop and calls no OnPreCull/OnRenderImage, so the two
+  eye images are drawn from LateUpdate, before the frame, and copied into
+  the main image's two layers in the game's post-processing pass; the map's
+  screen effects then run on both eyes together. By default the main
+  camera's own scene draw is dropped (two scene draws a frame), and map
+  effects that read scene depth get none. New setting **Separate Eyes Keep
+  Scene Depth (slow)** keeps it, for that depth, at three scene draws. With
+  the game's bloom/post-processing off the renderer stays off (nothing could
+  show the eye images; the log says why).
+- build.yml builds Beat Saber 1.45.3 as well (job `build-1-45-3`) and puts
+  its QMODs, named `-bs1.45.3`, and the CustomJSONData/Tracks/Noodle/Chroma
+  ports on the release. build-1.45.3.yml is now manual-only, for the next
+  game version.
+- The Chroma port is built and uploaded too. The ports repository's copy is
+  bsq-ports/Chroma's v1.45.3 branch without its CMakeLists.txt, so it never
+  built (the step's failure was hidden by continue-on-error); the workflows
+  take that file from the same upstream commit, and give Chroma's build
+  script the NDK path where it looks. A missing port QMOD is now a warning.
 
 ### Added
 - Vivify Quest Converter, a desktop app for Windows, Linux and macOS

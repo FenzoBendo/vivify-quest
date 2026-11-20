@@ -1224,10 +1224,18 @@ bool RenderEyes(UnityEngine::Camera* main, UnityEngine::RenderTextureDescriptor 
   frame.twoLayerArray = desc.get_dimension() == UnityEngine::Rendering::TextureDimension::Tex2DArray &&
                         desc.get_volumeDepth() == 2;
   frame.resolved = desc.get_msaaSamples() == 1;
+#ifdef VIVIFY_GAME_1_45_3
+  // URP: the eye images are blitted into the main image's layers, not
+  // copied raw, so neither MSAA nor cross-type copy support matters.
+  frame.resolved = true;
+#endif
   // This SystemInfo wrapper/enum is stripped from the game's managed API.
   // Unity 2021.3 CopyTextureSupport: Basic=1, DifferentTypes=4.
   int const copy = CopySupport();
   frame.copySupported = (copy & 1) != 0 && (copy & 4) != 0;
+#ifdef VIVIFY_GAME_1_45_3
+  frame.copySupported = true;
+#endif
   // An anti-aliased (MSAA) eye texture is the one obstacle the game's own
   // settings can bring back: Yoi Okashi's tessellated scene ran on 0.15.20,
   // then from Nov 15 every play logged "resolved cross-type texture copies
@@ -1359,6 +1367,12 @@ bool RenderEyes(UnityEngine::Camera* main, UnityEngine::RenderTextureDescriptor 
         } sceneEffect(effects);
         camera->Render();
       }
+#ifdef VIVIFY_GAME_1_45_3
+      // URP calls no OnRenderImage: the camera rendered straight into its
+      // eye target, and the map's effects run on both eyes together later,
+      // in the game's post-processing pass (UrpPresent).
+      captureComplete = true;
+#endif
       LogEyeGrabs(eye);
       captureEye = -1;
       if (failed || !captureComplete) throw std::runtime_error("eye image callback did not complete");
@@ -1442,6 +1456,10 @@ void PrepareFrame(UnityEngine::Camera* main, CameraApplier* effects) {
   // No culling state is touched on failure. A complete, current stereo image
   // exists before skipping the redundant main-camera geometry and depth pass.
   if (!completedFrame.Ready(frame, reinterpret_cast<uintptr_t>(main))) return;
+#ifdef VIVIFY_GAME_1_45_3
+  // Keep Scene Depth: the main camera still draws, for _CameraDepthTexture.
+  if (GetSeparateEyeKeepSceneDepth()) return;
+#endif
   try {
     suppressedCamera = main;
     suppressedMask = main->get_cullingMask(); suppressedDepth = main->get_depthTextureMode().value__;
@@ -1498,4 +1516,50 @@ bool TryRender(UnityEngine::Camera* main, UnityEngine::RenderTexture* source, Ca
     return false;
   }
 }
+#ifdef VIVIFY_GAME_1_45_3
+namespace {
+int urpPostPassFrame = -1;
+}
+void NoteUrpPostPass(UnityEngine::Camera* main, UnityEngine::RenderTexture* color) {
+  urpPostPassFrame = UnityEngine::Time::get_frameCount();
+  if (!Alive(main) || !Alive(color)) return;
+  mainDescriptor = color->get_descriptor(); descriptorCamera = main; descriptorHdr = main->get_allowHDR();
+  xrWidth = UnityEngine::XR::XRSettings::get_eyeTextureWidth(); xrHeight = UnityEngine::XR::XRSettings::get_eyeTextureHeight();
+  xrScale = UnityEngine::XR::XRSettings::get_renderViewportScale();
+}
+void UrpPrepareFrame(UnityEngine::Camera* main) {
+  RestoreMainCamera(); // last frame's suppression and native materials
+  completedFrame.Clear();
+  if (!GetExperimentalSeparateEye() || !Alive(main)) return;
+  // Only the game's post-processing pass can show the eye images. Without it
+  // (bloom off), a main camera with its scene taken away would show black.
+  if (urpPostPassFrame < UnityEngine::Time::get_frameCount() - 1) {
+    LogRejection("the game's post-processing pass is not running (bloom/post-processing off)");
+    return;
+  }
+  auto* effects = main->GetComponent<CameraApplier*>();
+  if (!Alive(effects)) { LogRejection("the main camera has no Vivify camera component"); return; }
+  PrepareFrame(main, effects);
+}
+bool UrpPresent(UnityEngine::Rendering::CommandBuffer* commands, UnityEngine::RenderTexture* color) {
+  auto* main = descriptorCamera ? descriptorCamera.ptr() : nullptr;
+  bool const current = Alive(main) && completedFrame.Ready(UnityEngine::Time::get_frameCount(), reinterpret_cast<uintptr_t>(main));
+  if (!current || !commands || !Alive(color) || !colors[0] || !colors[1]) return false;
+  try {
+    for (int eye = 0; eye != 2; ++eye) RecordEyeIntoLayer(commands, colors[eye].ptr(), color, eye);
+    static bool presentedOnce = false;
+    if (!presentedOnce) {
+      presentedOnce = true;
+      PaperLogger.info("Vivify separate-eye (URP): eye images {}x{} presented into '{}' ({})", width, height,
+                       std::string(color->get_name()),
+                       GetSeparateEyeKeepSceneDepth() ? "main scene kept for depth" : "main scene skipped");
+    }
+    return true;
+  } catch (...) {
+    failed = true;
+    PaperLogger.error("Vivify separate-eye (URP): presenting the eye images failed; normal rendering resumes next frame");
+    return false;
+  }
+}
+#endif
 } // namespace Vivify::SeparateEye
