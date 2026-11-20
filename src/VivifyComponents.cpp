@@ -640,10 +640,7 @@ void CameraApplier::RenderEffects(UnityEngine::RenderTexture* src, UnityEngine::
     auto mainEffectSO = mainEffectController->_mainEffectContainer->get_mainEffect();
     if (mainEffectSO.ptr() != nullptr && IsManagedAlive(mainEffectSO) && mainEffectSO->get_hasPostProcessEffect()) {
       auto renderMain = [&](UnityEngine::RenderTexture* from, UnityEngine::RenderTexture* to) {
-        mainEffectController->OnPreRender();
-        try { mainEffectSO->Render(from, to, mainEffectController->____fadeValue); }
-        catch (...) { mainEffectController->OnPostRender(); throw; }
-        mainEffectController->OnPostRender();
+        RenderMainEffect(mainEffectController, mainEffectSO.ptr(), from, to);
       };
       if (runtime.IsResetting() || GetDisableAllBlits() ||
           (runtime.GetPreEffectsEmpty() && runtime.GetPostEffectsEmpty())) {

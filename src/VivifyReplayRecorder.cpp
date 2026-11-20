@@ -11,6 +11,19 @@
 #include "VivifyReplayFormat.hpp"
 #include "VivifyReplayRecorder.hpp"
 
+#ifdef VIVIFY_GAME_1_45_3
+// 1.45.3 changed the scoring results, beatmap keys and level setup data the
+// recorder reads, and the Replay mod it records for has no 1.45.3 release; it
+// is not built for that game yet.
+DEFINE_TYPE(Vivify, ReplayRecorderTicker);
+namespace Vivify::ReplayRecorder {
+void InstallHooks() { PaperLogger.info("Vivify replay recorder: not available on this game version"); }
+std::string Directory() { return "/sdcard/ModData/com.beatgames.beatsaber/Mods/bl/replays/"; }
+std::string LastSaved() { return {}; }
+}  // namespace Vivify::ReplayRecorder
+void Vivify::ReplayRecorderTicker::LateUpdate() {}
+#else
+
 #if __has_include(<sys/system_properties.h>)
 #include <sys/system_properties.h>  // bionic; absent from the host syntax check
 #define VIVIFY_HAS_SYSTEM_PROPERTIES 1
@@ -25,8 +38,7 @@
 #include <optional>
 #include <thread>
 
-#include "beatsaber-hook/shared/utils/hooking.hpp"
-#include "beatsaber-hook/shared/utils/il2cpp-utils.hpp"
+#include "VivifyCompat.hpp"
 #include "custom-types/shared/delegate.hpp"
 #include "scotland2/shared/modloader.h"
 
@@ -369,7 +381,7 @@ MAKE_HOOK_MATCH(Recorder_SpawnObstacle, &BeatmapObjectManager::AddSpawnedObstacl
 }
 
 MAKE_HOOK_MATCH(Recorder_NoteWasCut, &BeatmapObjectManager::HandleNoteControllerNoteWasCut, void,
-                BeatmapObjectManager* self, NoteController* controller, ByRef<NoteCutInfo> cutInfo) {
+                BeatmapObjectManager* self, NoteController* controller, VIVIFY_IN(NoteCutInfo) cutInfo) {
   Recorder_NoteWasCut(self, controller, cutInfo);
   if (!replay || controller == nullptr) return;
   auto found = noteIds.find(controller->get_noteData());
@@ -606,3 +618,4 @@ void Vivify::ReplayRecorderTicker::LateUpdate() {
   } catch (...) {
   }
 }
+#endif  // VIVIFY_GAME_1_45_3

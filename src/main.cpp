@@ -36,7 +36,7 @@
 #include "bsml/shared/BSML-Lite/Creation/Settings.hpp"
 #include "bsml/shared/BSML/Components/Settings/DropdownListSetting.hpp"
 #include "bsml/shared/BSML-Lite/Creation/Text.hpp"
-#include "beatsaber-hook/shared/utils/typedefs-wrappers.hpp"
+#include "VivifyCompat.hpp"
 #include "HMUI/CurvedTextMeshPro.hpp"
 #include "TMPro/TextMeshProUGUI.hpp"
 #include "TMPro/TextOverflowModes.hpp"
@@ -1476,8 +1476,8 @@ void RegisterModSettings() {
             auto list = versionsPtr->values;
             if (!list) return;
             list->Clear();
-            list->Add(reinterpret_cast<System::Object*>(static_cast<Il2CppString*>(StringW("Latest"))));
-            for (auto const& tag : tags) list->Add(reinterpret_cast<System::Object*>(static_cast<Il2CppString*>(StringW(tag))));
+            list->Add(reinterpret_cast<System::Object*>(StringW("Latest").convert()));
+            for (auto const& tag : tags) list->Add(reinterpret_cast<System::Object*>(StringW(tag).convert()));
             versionsPtr->UpdateChoices();
           });
           advanced(button(u"Install Chosen Version", []() {

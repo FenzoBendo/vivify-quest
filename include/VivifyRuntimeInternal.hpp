@@ -19,7 +19,7 @@
 #include "UnityEngine/AssetBundleCreateRequest.hpp"
 #include "UnityEngine/AssetBundleRequest.hpp"
 #include "System/Collections/Generic/List_1.hpp"
-#include "beatsaber-hook/shared/utils/typedefs-wrappers.hpp"
+#include "VivifyCompat.hpp"
 
 namespace Vivify {
 // The camera Vivify treats as the player's view (0.15.19): Camera.main, or,
@@ -181,7 +181,9 @@ public:
   void ApplyBlits(UnityEngine::RenderTexture* src, UnityEngine::RenderTexture* dest,
                   std::string const& cameraName = "_Main", int phase = 0);
 
+#ifndef VIVIFY_GAME_1_45_3
   bool ShouldBypassImageEffect(GlobalNamespace::ImageEffectController* controller);
+#endif
   bool CanUseNativeStereoEffects() const;
 
   bool RenderSecondaryCameraMainEffect(UnityEngine::Camera* camera, UnityEngine::RenderTexture* src,
@@ -454,7 +456,7 @@ private:
   PrefabRenderability EvaluatePrefabRenderability(std::string_view asset);
   bool ShouldHideOriginal(std::vector<AssignedPrefabInfo*> const& infos) const;
   void DisableOriginalRenderers(UnityEngine::GameObject* gameObject, VisualReplacement& replacement);
-  void DisableOriginalRenderers(ArrayW<UnityEngine::Renderer*, Array<UnityEngine::Renderer*>*> const& renderers,
+  void DisableOriginalRenderers(ArrayW<UnityEngine::Renderer*> const& renderers,
                                 VisualReplacement& replacement);
   UnityEngine::Transform* GetReplacementParent(GlobalNamespace::NoteController* noteController);
   GlobalNamespace::MaterialPropertyBlockController* GetReplacementMaterialPropertyBlockController(
