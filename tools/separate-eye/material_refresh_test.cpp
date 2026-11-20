@@ -100,6 +100,8 @@ std::vector<std::string> tessellationShaderNames;
 int selectedEye = -1;
 std::string MaterialShaderName(Material* source) { return source->shader->name; }
 Shader* FindDonor(Material* source, int mode) { return donors.at(source->shader).at(mode); }
+// Runtime copies are remembered by name lookup the stand-ins do not model.
+void RememberRuntimeCopy(Material*) {}
 void BindStereo(Material* material, StereoBindings::Mask, bool) { ++material->binds; }
 #include "ActualCopyMaterial.inc"
 #include "ActualCanUseNativeMaterial.inc"
