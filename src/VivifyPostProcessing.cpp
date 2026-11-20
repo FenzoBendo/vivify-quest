@@ -182,12 +182,12 @@ bool Runtime::TryApplyStereoBlits(UnityEngine::RenderTexture* src, UnityEngine::
     static bool reported = false;
     if (!reported) { PaperLogger.info("Vivify stereo screen effects: explicit-eye image processing; reusing the native multiview scene"); reported = true; }
     return true;
-  } catch (std::exception const& ex) {
-    static bool reported = false;
-    if (!reported) { PaperLogger.error("Vivify stereo screen effect processing failed: {}", ex.what()); reported = true; }
   } catch (Vivify::CSharpException const& ex) {
     static bool reported = false;
     if (!reported) { PaperLogger.error("Vivify stereo screen effect processing failed: {}", Vivify::ExceptionText(ex)); reported = true; }
+  } catch (std::exception const& ex) {
+    static bool reported = false;
+    if (!reported) { PaperLogger.error("Vivify stereo screen effect processing failed: {}", ex.what()); reported = true; }
   } catch (...) {
     static bool reported = false;
     if (!reported) { PaperLogger.error("Vivify stereo screen effect processing failed with a native exception"); reported = true; }

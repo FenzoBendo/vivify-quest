@@ -1,4 +1,5 @@
 #include "VivifyRuntimeInternal.hpp"
+#include "UnityEngine/Rendering/GlobalKeyword.hpp"
 #include <regex>
 #include "VivifySeparateEye.hpp"
 #include "VivifyLookEstimate.hpp"
