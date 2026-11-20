@@ -2,6 +2,7 @@
   "_comment": "Beat Saber 1.45.3_30054 build target. scripts/use-game-target.py applies it to qpm.json and mod.json. Ranges follow the 1.45.3 core mods (bs-coremods core_mods.json) and the v1.45.3 branches of bsq-ports/Tracks, NoodleExtensions and Chroma.",
   "gameVersion": "1.45.3_30054",
   "bsCordl": "4503",
+  "ndk": "^29.0.14206865",
   "qpmDependencies": {
     "beatsaber-hook": "^9.3.0",
     "bs-cordl": "4503.*",
