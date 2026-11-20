@@ -68,7 +68,7 @@ jobs:
         qpm ndk resolve -d
         qpm restore
         qpm s build
-        qpm install --legacy
+        qpm install
         qpm qmod zip
 
     - name: Build and install Tracks (port)
@@ -84,7 +84,7 @@ jobs:
         export ANDROID_NDK_HOME="$(cat ndkpath.txt)"
         qpm restore
         qpm s build
-        qpm install --legacy
+        qpm install
         qpm qmod zip
 
     - name: Build Noodle Extensions (port, for players)
