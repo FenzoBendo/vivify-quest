@@ -665,6 +665,11 @@ private:
   SafePtr<UnityEngine::Object> _blitGuardRoots[3];
   // The same for the cached main/scratch effect textures (0.15.43).
   SafePtr<UnityEngine::Object> _blitTextureRoots[2];
+  // What each root above holds. SafePtr::ptr() throws on an empty handle, so
+  // these are compared instead (0.15.44: 0.15.43 called ptr() on the first
+  // frame, and the exception left OnRenderImage and aborted the game the
+  // moment any screen effect ran).
+  UnityEngine::Object* _blitTextureRooted[2] = {nullptr, nullptr};
   std::unordered_map<UnityEngine::Material*, BlitGuardWatch> _blitGuardWatches;
   std::set<UnityEngine::Material*> _blitGuardKilled;
   bool _blitGuardAllOff = false;

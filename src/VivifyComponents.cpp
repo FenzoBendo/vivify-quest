@@ -602,17 +602,33 @@ void CameraApplier::OnDisable() {
 }
 
 void CameraApplier::OnRenderImage(UnityEngine::RenderTexture* src, UnityEngine::RenderTexture* dest) {
-  auto& runtime = Runtime::Instance();
-  if (cameraName == "_Main" && GetExperimentalSeparateEye()) {
-    auto go = get_gameObject();
-    auto* camera = IsManagedAlive(go.unsafePtr()) ? go->GetComponent<UnityEngine::Camera*>() : nullptr;
-    if (SeparateEye::TryRender(camera, src, this)) {
-      runtime.CacheMainRenderDescriptor(src);
-      runtime.ApplyBlits(src, dest, cameraName, -1);
-      return; // both eye images already include pre/main/post effects
+  // Unity calls this through il2cpp; a C++ exception leaving it ends in
+  // std::terminate and the game is gone (0.15.43: every screen effect). One
+  // that throws now costs this frame its effects instead (0.15.44).
+  try {
+    auto& runtime = Runtime::Instance();
+    if (cameraName == "_Main" && GetExperimentalSeparateEye()) {
+      auto go = get_gameObject();
+      auto* camera = IsManagedAlive(go.unsafePtr()) ? go->GetComponent<UnityEngine::Camera*>() : nullptr;
+      if (SeparateEye::TryRender(camera, src, this)) {
+        runtime.CacheMainRenderDescriptor(src);
+        runtime.ApplyBlits(src, dest, cameraName, -1);
+        return; // both eye images already include pre/main/post effects
+      }
     }
+    RenderEffects(src, dest);
+    return;
+  } catch (std::exception const& e) {
+    static int reported = 0;
+    if (reported++ < 5) PaperLogger.error("Vivify screen effects threw ({}); this frame is drawn without them", e.what());
+  } catch (...) {
+    static int reported = 0;
+    if (reported++ < 5) PaperLogger.error("Vivify screen effects threw; this frame is drawn without them");
   }
-  RenderEffects(src, dest);
+  try {
+    if (IsManagedAlive(src)) UnityEngine::Graphics::Blit(src, dest);
+  } catch (...) {
+  }
 }
 
 void CameraApplier::RenderEffects(UnityEngine::RenderTexture* src, UnityEngine::RenderTexture* dest) {

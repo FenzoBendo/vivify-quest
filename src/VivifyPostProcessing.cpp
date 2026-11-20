@@ -214,10 +214,13 @@ void Runtime::ApplyBlits(UnityEngine::RenderTexture* src, UnityEngine::RenderTex
   if (TryApplyStereoBlits(src, dest, cameraName, phase)) return;
   auto* main = EnsureCachedBlitTexture(_mainBlitTexture, _mainBlitAllocation, src);
   auto* scratch = EnsureCachedBlitTexture(_scratchBlitTexture, _scratchBlitAllocation, src);
-  if (_blitTextureRoots[0].ptr() != static_cast<UnityEngine::Object*>(main))
-    _blitTextureRoots[0] = static_cast<UnityEngine::Object*>(main);
-  if (_blitTextureRoots[1].ptr() != static_cast<UnityEngine::Object*>(scratch))
-    _blitTextureRoots[1] = static_cast<UnityEngine::Object*>(scratch);
+  for (int i = 0; i < 2; i++) {
+    auto* texture = static_cast<UnityEngine::Object*>(i == 0 ? main : scratch);
+    if (texture != nullptr && texture != _blitTextureRooted[i]) {
+      _blitTextureRoots[i] = texture;
+      _blitTextureRooted[i] = texture;
+    }
+  }
   if (!IsAlive(main) || !IsAlive(scratch)) {
     auto* cb = ImmediateCommandBuffer();
     RecordBlit(cb, ToTargetId(src), destId);
@@ -463,9 +466,10 @@ bool Runtime::EnsureBlitGuardTextures() {
     _blitGuardReader = UnityEngine::Texture2D::New_ctor(kGuardSize, kGuardSize, UnityEngine::TextureFormat::RGBA32,
                                                         false);
   }
-  _blitGuardRoots[0] = static_cast<UnityEngine::Object*>(_blitGuardIn);
-  _blitGuardRoots[1] = static_cast<UnityEngine::Object*>(_blitGuardOut);
-  _blitGuardRoots[2] = static_cast<UnityEngine::Object*>(_blitGuardReader);
+  // Never empty here: make() and the reader above have succeeded.
+  if (_blitGuardIn) _blitGuardRoots[0] = static_cast<UnityEngine::Object*>(_blitGuardIn);
+  if (_blitGuardOut) _blitGuardRoots[1] = static_cast<UnityEngine::Object*>(_blitGuardOut);
+  if (_blitGuardReader) _blitGuardRoots[2] = static_cast<UnityEngine::Object*>(_blitGuardReader);
   return IsAlive(_blitGuardReader);
 }
 
