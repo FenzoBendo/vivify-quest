@@ -551,7 +551,7 @@ constexpr std::string_view kForceBloomConfigKey = "forceBloom";
 
 std::mutex gMapOverridesMutex;
 std::string gMapOverridesFor;  // song folder name the cache below is for
-std::string gSeparateEyeAutoOffMapKey;  // map whose shaders read a screen grab (NoteMapGrabsScreen)
+std::string gGrabMapKey;  // map whose shaders read a named screen grab (NoteMapGrabsScreen)
 std::unordered_map<std::string, bool> gMapOverrides;
 
 void LoadMapOverridesLocked(std::string const& mapKey) {
@@ -965,11 +965,7 @@ bool GlobalAudioLink() { return gAudioLink; }
 bool GlobalGameMirrors() { return gGameMirrors; }
 bool GlobalFullReflectionProbes() { return gFullReflectionProbes; }
 bool GlobalForceBloom() { return gForceBloom; }
-bool GlobalSeparateEye() {
-  if (kLiteBuild || !gExperimentalSeparateEye) return false;
-  std::lock_guard lock(gMapOverridesMutex);
-  return gSeparateEyeAutoOffMapKey.empty() || gSeparateEyeAutoOffMapKey != gMapOverridesFor;
-}
+bool GlobalSeparateEye() { return !kLiteBuild && gExperimentalSeparateEye; }
 MapSettingRow const kMapSettingRows[] = {
     {"Screen Effects", kDisableAllBlitsConfigKey, true, GlobalDisableAllBlits},
     {"Game Bloom", kForceBloomConfigKey, false, GlobalForceBloom},
@@ -1626,28 +1622,24 @@ bool GetMultipassRenderingEnabled() {
 
 // Per map too (0.15.45): Aether turns it on for its geometry-shader effects,
 // at several times the frame time; a map can have it off on its own.
-// Maps whose shaders read a named screen grab (Aether's glass rocks:
-// "_GrabTexture1"). Unity takes a named grab once a frame, so with the eyes
-// drawn one after the other the second eye refracted the first eye's image:
-// a flat ghost inside the glass while the rift's geometry shader kept the
-// scene on the separate route. 0.15.13, before this renderer, had none. The
-// renderer is off for such a map unless the map's own setting says otherwise
-// (0.15.48). The map key lives with the overrides above.
-
+// Maps whose shaders read a named screen grab (Aether's glass rocks and
+// shockwaves: "_GrabTexture1"). Unity takes a named grab once a frame, so with
+// the eyes drawn one after the other the second eye refracted the first eye's
+// image (0.15.48 turned the renderer off for such maps, which broke their
+// geometry-shader effects again). The Separate-Eye Renderer now gives each eye
+// its own copy under those names (0.15.49) on the selected map flagged here.
 void NoteMapGrabsScreen(std::string const& levelPath) {
-  if (kLiteBuild || levelPath.empty() || !gExperimentalSeparateEye) return;
-  if (GetMapSetting(levelPath, kExperimentalSeparateEyeKey).has_value()) return;
+  if (kLiteBuild || levelPath.empty()) return;
   std::string const key = MapKeyOf(levelPath);
-  {
-    std::lock_guard lock(gMapOverridesMutex);
-    if (key == gSeparateEyeAutoOffMapKey) return;
-    gSeparateEyeAutoOffMapKey = key;
-  }
-  PaperLogger.info("Vivify: '{}' reads a screen grab; the Separate-Eye Renderer is off for this map (it made the "
-                   "second eye refract the first eye's image). Turn it on in this map's settings to override.",
-                   key);
-  Vivify::SeparateEye::Reset(true);
-  Vivify::ReselectSelectedMap();
+  std::lock_guard lock(gMapOverridesMutex);
+  if (key == gGrabMapKey) return;
+  gGrabMapKey = key;
+  PaperLogger.info("Vivify: '{}' reads a screen grab; the Separate-Eye Renderer gives each eye its own copy", key);
+}
+
+bool SelectedMapGrabsScreen() {
+  std::lock_guard lock(gMapOverridesMutex);
+  return !gGrabMapKey.empty() && gGrabMapKey == gMapOverridesFor;
 }
 
 bool GetExperimentalSeparateEye() {

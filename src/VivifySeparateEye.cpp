@@ -18,6 +18,11 @@
 #include "UnityEngine/Rect.hpp"
 #include "UnityEngine/Matrix4x4.hpp"
 #include "UnityEngine/ReflectionProbe.hpp"
+#include "UnityEngine/Rendering/CommandBuffer.hpp"
+#include "UnityEngine/Rendering/CameraEvent.hpp"
+#include "UnityEngine/Rendering/RenderTargetIdentifier.hpp"
+#include "UnityEngine/Rendering/BuiltinRenderTextureType.hpp"
+#include "main.hpp"
 #include "VivifyProjectors.hpp"
 #include "VivifyStereoBindings.hpp"
 #include "VivifyTessellationCache.hpp"
@@ -580,6 +585,70 @@ void LogEyeGrabs(int eye) {
   }
 }
 
+// Per-eye screen grabs (0.15.49). Unity takes a named GrabPass ("_GrabTexture1")
+// once a frame, so on this route the second eye's glass refracted the first
+// eye's image: Aether's flat ghost inside its glass rocks while the rift kept
+// the scene here. Each eye camera now copies its own image and binds it under
+// the map's grab names (and their per-eye donor names) at two points: before
+// the opaque pass, where Aether's glass (queues 1050-1900) takes its grab, and
+// before the transparent pass, for shockwaves (queue 3002). Unity's own grab
+// is skipped on the second eye, so that eye keeps its own copy.
+std::array<std::array<SafePtr<UnityEngine::RenderTexture>, 2>, 2> grabCopies;
+std::array<std::array<SafePtr<UnityEngine::Rendering::CommandBuffer>, 2>, 2> grabCommands;
+bool grabCopiesLogged = false;
+void ReleaseGrabCopies() {
+  for (auto& eye : grabCopies)
+    for (auto& texture : eye) {
+      if (texture && Alive(texture.ptr())) { texture->Release(); UnityEngine::Object::Destroy(texture.ptr()); }
+      texture = nullptr;
+    }
+  grabCopiesLogged = false;
+}
+void InstallEyeGrabs(UnityEngine::Camera* camera, int eye, UnityEngine::RenderTexture* target) {
+#ifndef VIVIFY_GAME_1_45_3
+  if (eye < 0 || eye > 1 || !Alive(camera) || !Alive(target) || !SelectedMapGrabsScreen()) return;
+  auto const names = Runtime::Instance().GrabTextureNames();
+  if (names.empty()) return;
+  using RTI = UnityEngine::Rendering::RenderTargetIdentifier;
+  constexpr int32_t kPoints[2] = {
+      static_cast<int32_t>(UnityEngine::Rendering::CameraEvent::__CameraEvent_Unwrapped::__E_BeforeForwardOpaque),
+      static_cast<int32_t>(UnityEngine::Rendering::CameraEvent::__CameraEvent_Unwrapped::__E_BeforeForwardAlpha)};
+  for (int point = 0; point != 2; ++point) {
+    auto& copy = grabCopies[eye][point];
+    if (!copy || !Alive(copy.ptr()) || copy->get_width() != target->get_width() ||
+        copy->get_height() != target->get_height()) {
+      if (copy && Alive(copy.ptr())) { copy->Release(); UnityEngine::Object::Destroy(copy.ptr()); }
+      auto descriptor = target->get_descriptor();
+      descriptor.set_depthBufferBits(0); descriptor.set_msaaSamples(1);
+      descriptor.set_useMipMap(false); descriptor.set_autoGenerateMips(false);
+      auto* texture = UnityEngine::RenderTexture::New_ctor(descriptor);
+      texture->set_name(eye == 0 ? u"Vivify Eye Grab Left" : u"Vivify Eye Grab Right");
+      texture->set_hideFlags(UnityEngine::HideFlags::HideAndDontSave);
+      if (!texture->Create()) { UnityEngine::Object::Destroy(texture); copy = nullptr; return; }
+      copy = texture;
+    }
+    auto& command = grabCommands[eye][point];
+    if (!command) command = UnityEngine::Rendering::CommandBuffer::New_ctor();
+    auto* cb = command.ptr();
+    cb->Clear();
+    RTI source{};
+    source._ctor(UnityEngine::Rendering::BuiltinRenderTextureType::CurrentActive);
+    auto destination = RTI::op_Implicit___UnityEngine__Rendering__RenderTargetIdentifier(copy.ptr());
+    cb->Blit(source, destination);
+    for (auto const& name : names) {
+      cb->SetGlobalTexture(StringW(name), destination);
+      cb->SetGlobalTexture(StringW(name + "__VivifyEye" + std::to_string(eye)), destination);
+    }
+    camera->AddCommandBuffer(UnityEngine::Rendering::CameraEvent(kPoints[point]), cb);
+  }
+  if (!grabCopiesLogged && eye == 1) {
+    grabCopiesLogged = true;
+    PaperLogger.info("Vivify separate-eye: each eye gets its own copy of the screen grab ({} name(s), {}x{})",
+                     names.size(), target->get_width(), target->get_height());
+  }
+#endif
+}
+
 void EnsureTargets(UnityEngine::RenderTextureDescriptor descriptor) {
   int const nextFormat = descriptor.get_graphicsFormat().value__;
   // Drawing every eye's scene twice can halve the frame rate (Aether's
@@ -891,6 +960,7 @@ void Reset(bool unloadDonors) {
     camera = nullptr;
   }
   for (auto& bloom : eyeBloom) bloom = nullptr;
+  ReleaseGrabCopies();
   for (auto& texture : colors) { if (texture) texture->Release(); Destroy(texture); }
   if (staging) staging->Release();
   Destroy(staging);
@@ -1390,6 +1460,7 @@ bool RenderEyes(UnityEngine::Camera* main, UnityEngine::RenderTextureDescriptor 
       camera->RemoveAllCommandBuffers();
       camera->set_stereoTargetEye(UnityEngine::StereoTargetEyeMask::None);
       camera->set_targetTexture(colors[eye].ptr());
+      InstallEyeGrabs(camera, eye, colors[eye].ptr());
       camera->set_depthTextureMode(UnityEngine::DepthTextureMode(main->get_depthTextureMode().value__ | (needsDepth ? 1 : 0)));
       camera->set_allowMSAA(false); camera->set_allowDynamicResolution(false);
       camera->set_rect(UnityEngine::Rect(0, 0, 1, 1));

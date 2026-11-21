@@ -11,6 +11,24 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.49]
+
+### Fixed
+
+- Aether: glass refraction and geometry-shader effects (the rift, wireframes)
+  together, with the Separate-Eye Renderer on (1.40.8). Unity takes a named
+  screen grab once a frame, so with the eyes drawn one after the other the
+  second eye's glass refracted the first eye's image. Each eye now copies its
+  own image and binds it under the map's grab names: before the opaque pass,
+  where Aether's glass grabs, and before the transparent pass, for its
+  shockwaves.
+
+### Changed
+
+- 0.15.48's automatic "Separate-Eye Renderer off" for maps that read a screen
+  grab is gone: it fixed the glass by breaking the geometry effects. The
+  per-map setting still turns the renderer off for a map.
+
 ## [0.15.48]
 
 ### Fixed

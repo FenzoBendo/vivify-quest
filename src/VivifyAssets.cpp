@@ -2664,12 +2664,10 @@ std::string DepthScanKey(std::string const& path) {
 }
 
 namespace {
-// Only in the menu, and only for the map still selected: turning the renderer
-// off resets it and reselects the map, which must not happen during a song.
-// A song started first picks the setting up on its next selection.
+// For the map still selected only: the scan runs in the background and the
+// player may have moved on to another map by the time it finishes.
 void NoteMapGrabsScreenInMenu(std::string const& levelPath) {
-  auto& runtime = Runtime::Instance();
-  if (runtime.GetCurrentBeatmapData() != nullptr || runtime.SelectedLevelPath() != levelPath) return;
+  if (Runtime::Instance().SelectedLevelPath() != levelPath) return;
   NoteMapGrabsScreen(levelPath);
 }
 }
@@ -2687,7 +2685,7 @@ void Runtime::ScanBundleForSceneDepth(std::string const& bundlePath) {
     if (!cached && !_depthScansRunning.insert(key).second) return;
   }
   if (cached) {
-    // Deferred: turning the renderer off reselects the map, which scans again.
+    // On the main thread, like the scan's own result.
     if (cachedGrabs) BSML::MainThreadScheduler::Schedule([levelPath]() { NoteMapGrabsScreenInMenu(levelPath); });
     return;
   }
