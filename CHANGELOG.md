@@ -11,6 +11,19 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.48]
+
+### Fixed
+
+- Aether's glass rocks no longer ghost while the rift is on screen. The
+  ghosting came from the Separate-Eye Renderer (added after 0.15.13, which
+  did not ghost): the rift's geometry shader put the scene on the per-eye
+  route, and Unity takes a named screen grab ("_GrabTexture1") once a frame,
+  so the second eye's glass refracted the first eye's image. The renderer is
+  now off automatically for any map whose shaders read a named screen grab,
+  unless that map's own "Separate-Eye Renderer" setting is set; its per-map
+  row shows "default (off)" for such maps. Lifelike reads no grab and keeps it.
+
 ## [0.15.47]
 
 ### Fixed

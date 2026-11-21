@@ -735,6 +735,8 @@ private:
   // GrabPass texture names seen in loaded bundles (under _depthScanMutex),
   // reported by the visual check (0.15.29).
   std::set<std::string> _grabTextureNames;
+  // Scan keys of bundles with a named GrabPass (0.15.48).
+  std::set<std::string> _grabBundles;
   bool _skipMapTrailsLogged = false;
   std::chrono::steady_clock::time_point _lastRecoveryHeartbeat{};
   float _lastSyncSongTime = -1.0f;

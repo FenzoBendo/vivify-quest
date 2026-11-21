@@ -2663,15 +2663,35 @@ std::string DepthScanKey(std::string const& path) {
 }
 }
 
+namespace {
+// Only in the menu, and only for the map still selected: turning the renderer
+// off resets it and reselects the map, which must not happen during a song.
+// A song started first picks the setting up on its next selection.
+void NoteMapGrabsScreenInMenu(std::string const& levelPath) {
+  auto& runtime = Runtime::Instance();
+  if (runtime.GetCurrentBeatmapData() != nullptr || runtime.SelectedLevelPath() != levelPath) return;
+  NoteMapGrabsScreen(levelPath);
+}
+}
+
 void Runtime::ScanBundleForSceneDepth(std::string const& bundlePath) {
   // Lite: no scan, so the depth texture stays on as it was in 0.14.7.
   if (kLiteBuild || bundlePath.empty()) return;
   std::string const key = DepthScanKey(bundlePath);
+  std::string const levelPath = _selectedLevelPath;
+  bool cached = false, cachedGrabs = false;
   {
     std::lock_guard lock(_depthScanMutex);
-    if (_depthScanResults.contains(key) || !_depthScansRunning.insert(key).second) return;
+    cached = _depthScanResults.contains(key);
+    cachedGrabs = cached && _grabBundles.contains(key);
+    if (!cached && !_depthScansRunning.insert(key).second) return;
   }
-  std::thread([this, bundlePath, key]() {
+  if (cached) {
+    // Deferred: turning the renderer off reselects the map, which scans again.
+    if (cachedGrabs) BSML::MainThreadScheduler::Schedule([levelPath]() { NoteMapGrabsScreenInMenu(levelPath); });
+    return;
+  }
+  std::thread([this, bundlePath, key, levelPath]() {
     setpriority(PRIO_PROCESS, static_cast<id_t>(gettid()), 10);
     bool needed = true;
     bool known = false;
@@ -2689,6 +2709,8 @@ void Runtime::ScanBundleForSceneDepth(std::string const& bundlePath) {
         PaperLogger.info("Vivify grab passes: '{}' grabs {}", bundlePath, grabs);
         std::lock_guard lock(_depthScanMutex);
         for (auto const& name : scan.grabTextureNames) _grabTextureNames.insert(name);
+        _grabBundles.insert(key);
+        BSML::MainThreadScheduler::Schedule([levelPath]() { NoteMapGrabsScreenInMenu(levelPath); });
       }
     } catch (...) {
     }

@@ -26,6 +26,9 @@ inline constexpr bool kLiteBuild = false;
 Configuration &getConfig();
 bool GetMultipassRenderingEnabled();
 bool GetExperimentalSeparateEye();
+// The selected map reads a named screen grab: Separate-Eye Renderer off for it
+// unless its own setting says otherwise.
+void NoteMapGrabsScreen(std::string const& levelPath);
 bool GetUniformTriangleTessellation();
 bool GetVivifyDebugLogging();
 // Send Logs (0.15.20); only acts with Debug Logging on too.
