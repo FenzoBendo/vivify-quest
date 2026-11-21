@@ -7,6 +7,13 @@ on:
       - 'v*'
   pull_request:
     branches: [ main, master ]
+  # nightly.yml builds through this workflow, so its nightlies carry the same
+  # QMODs as a release: 1.40.8 and 1.45.3, full and Lite, and the 1.45.3 ports.
+  workflow_call:
+    outputs:
+      version:
+        description: 'The mod version that was built'
+        value: ${{ jobs.build.outputs.version }}
   workflow_dispatch:
     inputs:
       version:
