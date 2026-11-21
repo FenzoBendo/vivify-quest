@@ -43,6 +43,7 @@ bool GetGeometryRightEyeCopy();
 int GetVivifyFoveationLevel();
 bool GetGeometryEffectsBothEyes();
 bool GetSaberLightsOnMapObjects();
+bool GetTurnOffSaberModsForMapSabers();
 bool GetFlatScreenGuard();
 bool GetDisableVisualsInMultiplayer();
 bool GetDisableVRCenterAdjust();

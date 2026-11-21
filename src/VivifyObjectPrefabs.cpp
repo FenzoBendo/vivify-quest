@@ -29,6 +29,7 @@
 #include "UnityEngine/RenderTexture.hpp"
 #include "UnityEngine/StereoTargetEyeMask.hpp"
 #include "UnityEngine/ReflectionProbe.hpp"
+#include "UnityEngine/MonoBehaviour.hpp"
 #include "UnityEngine/Rendering/ReflectionProbeMode.hpp"
 #include "UnityEngine/Rendering/ReflectionProbeTimeSlicingMode.hpp"
 
@@ -1566,6 +1567,7 @@ void Runtime::NoteHeadsetLayers(UnityEngine::GameObject* root, std::string const
 // Objects" is on, and come back when the level ends.
 void Runtime::HideForeignSaberLights() {
   if (_currentBeatmapData != nullptr && !_isResetting) ApplyVivifyFoveation();
+  SweepSaberMods();
   if (_currentBeatmapData == nullptr || _isResetting || GetSaberLightsOnMapObjects()) return;
   float const now = UnityEngine::Time::get_unscaledTime();
   if (now >= _lastSaberLightSweep && now - _lastSaberLightSweep < 1.0f) return;
@@ -1848,6 +1850,113 @@ void Runtime::RestoreGameMirrors() {
   _lastMirrorSweep = -1.0f;
 }
 
+// Other saber mods' sabers on a Vivify map with its own saber model or trail
+// (0.15.51). CustomModels hangs its own saber ("LeftSaber"/"RightSaber", a
+// Lapiz SaberModelController) and its own trail under the game's Saber;
+// ReeSabers builds its own too. With them the map's model hung on their
+// controller and its trail followed theirs: the map's trail did not show, and
+// in a replay render the sabers did not move as recorded. Their objects are
+// switched off for the level, by the namespace or name of their components
+// (ReeSabers' source is not public; any class naming it is taken as its).
+static bool IsSaberModClass(Il2CppClass const* klass) {
+  for (int depth = 0; klass != nullptr && depth < 6; ++depth, klass = klass->parent) {
+    std::string ns = klass->namespaze ? klass->namespaze : "";
+    std::string name = klass->name ? klass->name : "";
+    for (auto* text : {&ns, &name})
+      std::transform(text->begin(), text->end(), text->begin(), [](unsigned char c) { return std::tolower(c); });
+    if (ns.starts_with("custommodels") || ns.starts_with("qosmetics") || ns.find("reesaber") != std::string::npos ||
+        name.find("reesaber") != std::string::npos)
+      return true;
+  }
+  return false;
+}
+
+static std::string ClassLabel(Il2CppClass const* klass) {
+  if (klass == nullptr) return "?";
+  std::string ns = klass->namespaze ? klass->namespaze : "";
+  return ns.empty() ? std::string(klass->name ? klass->name : "?") : ns + "::" + (klass->name ? klass->name : "?");
+}
+
+bool Runtime::SuppressSaberMods(GlobalNamespace::SaberModelController* smc, GlobalNamespace::Saber* saber) {
+  if (!GetTurnOffSaberModsForMapSabers() || !IsAlive(saber)) return false;
+  auto* saberObject = saber->get_gameObject().unsafePtr();
+  auto* saberTransform = saber->get_transform().unsafePtr();
+  if (!IsAlive(saberObject) || !IsAlive(saberTransform)) return false;
+  bool const controllerIsMods = IsAlive(smc) && IsSaberModClass(reinterpret_cast<Il2CppObject*>(smc)->klass);
+  auto behaviours = saberObject->GetComponentsInChildren<UnityEngine::MonoBehaviour*>(true);
+  for (int i = 0; behaviours && i < behaviours.size(); i++) {
+    auto* behaviour = behaviours[i];
+    if (!IsAlive(behaviour)) continue;
+    auto const* klass = reinterpret_cast<Il2CppObject*>(behaviour)->klass;
+    if (!IsSaberModClass(klass)) continue;
+    auto* transform = behaviour->get_transform().unsafePtr();
+    if (!IsAlive(transform) || transform == saberTransform) continue;  // never the saber itself
+    // The mod's whole object under the saber, not just this part of it.
+    while (IsAlive(transform->get_parent().unsafePtr()) && transform->get_parent().unsafePtr() != saberTransform)
+      transform = transform->get_parent().unsafePtr();
+    auto* top = transform->get_gameObject().unsafePtr();
+    if (!IsAlive(top) || !top->get_activeSelf()) continue;
+    top->SetActive(false);
+    _suppressedSaberModObjects.push_back(top);
+    if (_suppressedSaberModClasses.insert(ClassLabel(klass)).second)
+      PaperLogger.info("Vivify: this map has its own saber, so '{}' ({}) from another saber mod is off for this "
+                       "level; 'Map Sabers Turn Off Saber Mods' in settings keeps it",
+                       ToStdString(top->get_name()), ClassLabel(klass));
+  }
+  return controllerIsMods;
+}
+
+// Saber-mod objects that are not under the saber (ReeSabers' may not be),
+// looked for in the first seconds of a level and then every ten seconds.
+void Runtime::SweepSaberMods() {
+  if (_currentBeatmapData == nullptr || _isResetting || !GetMapSabers() || !GetTurnOffSaberModsForMapSabers()) return;
+  bool const mapSaber = std::any_of(_saberReplacements.begin(), _saberReplacements.end(), [](auto const& entry) {
+    return !entry.second.spawnedObjects.empty() || !entry.second.followedTrails.empty();
+  });
+  if (!mapSaber) return;
+  float const now = UnityEngine::Time::get_unscaledTime();
+  float const interval = _saberModSweeps < 5 ? 1.0f : 10.0f;
+  if (now >= _lastSaberModSweep && now - _lastSaberModSweep < interval) return;
+  _lastSaberModSweep = now;
+  _saberModSweeps++;
+  PurgeInvalidActiveSabers();
+  auto behaviours = UnityEngine::Object::FindObjectsOfType<UnityEngine::MonoBehaviour*>();
+  for (int i = 0; behaviours && i < behaviours.size(); i++) {
+    auto* behaviour = behaviours[i];
+    if (!IsAlive(behaviour)) continue;
+    auto const* klass = reinterpret_cast<Il2CppObject*>(behaviour)->klass;
+    if (!IsSaberModClass(klass)) continue;
+    auto* gameObject = behaviour->get_gameObject().unsafePtr();
+    if (!IsAlive(gameObject) || !gameObject->get_activeSelf()) continue;
+    auto* transform = gameObject->get_transform().unsafePtr();
+    // Never an object that holds a saber, its hand, or the map's own model.
+    bool holdsOurs = false;
+    for (auto const& target : _activeSabers) {
+      auto* saberTransform = IsAlive(target.saber) ? target.saber->get_transform().unsafePtr() : nullptr;
+      if (IsAlive(saberTransform) && saberTransform->IsChildOf(transform)) holdsOurs = true;
+    }
+    for (auto const& [controller, replacement] : _saberReplacements)
+      for (auto* spawned : replacement.spawnedObjects)
+        if (IsAlive(spawned) && spawned->get_transform()->IsChildOf(transform)) holdsOurs = true;
+    if (holdsOurs) continue;
+    gameObject->SetActive(false);
+    _suppressedSaberModObjects.push_back(gameObject);
+    if (_suppressedSaberModClasses.insert(ClassLabel(klass)).second)
+      PaperLogger.info("Vivify: this map has its own saber, so '{}' ({}) from another saber mod is off for this "
+                       "level; 'Map Sabers Turn Off Saber Mods' in settings keeps it",
+                       ToStdString(gameObject->get_name()), ClassLabel(klass));
+  }
+}
+
+void Runtime::RestoreSaberMods() {
+  for (auto* gameObject : _suppressedSaberModObjects)
+    if (IsAlive(gameObject)) gameObject->SetActive(true);
+  _suppressedSaberModObjects.clear();
+  _suppressedSaberModClasses.clear();
+  _lastSaberModSweep = -100.0f;
+  _saberModSweeps = 0;
+}
+
 void Runtime::RestoreForeignSaberLights() {
   for (auto* light : _disabledSaberLights) {
     if (IsAlive(light)) light->set_enabled(true);
@@ -2023,6 +2132,17 @@ void Runtime::ApplySaberVisuals(GlobalNamespace::SaberModelController* smc, Glob
     return;
   }
 
+  // Another saber mod's controller (CustomModels): its saber is switched off
+  // and the map's model hangs on the game's saber instead (0.15.51).
+  if (SuppressSaberMods(smc, saber)) {
+    auto* saberTransform = saber->get_transform().unsafePtr();
+    if (IsAlive(saberTransform) && parent != saberTransform) {
+      parent = saberTransform;
+      for (auto& target : _activeSabers)
+        if (target.controller == smc) target.parent = saberTransform;
+    }
+  }
+
   VisualReplacement replacement;
   // Capture the saber's own renderers before spawning, since the replacement is
   // parented under the same GameObject and must not be swept up by this list.
@@ -2099,7 +2219,13 @@ void Runtime::ApplySaberTrailVisuals(GlobalNamespace::SaberModelController* smc,
     return;
   }
   auto* sourceTrail = smc->____saberTrail.unsafePtr();
-  bool const hasOwnTrail = IsAlive(sourceTrail) && IsAlive(sourceTrail->____trailRendererPrefab.unsafePtr()) &&
+  // A saber mod's trail (CustomModels' CustomSaberTrail) is switched off with
+  // its saber on a map with its own (0.15.51): follow the saber instead.
+  bool const modsTrail = IsAlive(sourceTrail) && GetTurnOffSaberModsForMapSabers() &&
+                         (IsSaberModClass(reinterpret_cast<Il2CppObject*>(sourceTrail)->klass) ||
+                          IsSaberModClass(reinterpret_cast<Il2CppObject*>(smc)->klass));
+  bool const hasOwnTrail = !modsTrail && IsAlive(sourceTrail) &&
+                           IsAlive(sourceTrail->____trailRendererPrefab.unsafePtr()) &&
                            IsAlive(sourceTrail->____trailRenderer.unsafePtr());
   GlobalNamespace::SaberTrailRenderer* fallbackPrefab = nullptr;
   if (!hasOwnTrail) {

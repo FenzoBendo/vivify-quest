@@ -485,6 +485,10 @@ private:
                                VisualReplacement& replacement);
   void DiscoverSabers();
   void HideForeignSaberLights();
+  // Other saber mods' sabers on a Vivify map with its own saber (0.15.51).
+  bool SuppressSaberMods(GlobalNamespace::SaberModelController* smc, GlobalNamespace::Saber* saber);
+  void SweepSaberMods();
+  void RestoreSaberMods();
   void RestoreForeignSaberLights();
   void ApplyFieldOfView(UnityEngine::Camera* mainCam);
   void RestoreFieldOfView();
@@ -502,6 +506,10 @@ private:
   bool _eyeTrackedBefore = false;
   int _foveationBefore = 0;
   std::vector<UnityEngine::Light*> _disabledSaberLights;
+  std::vector<UnityEngine::GameObject*> _suppressedSaberModObjects;
+  std::set<std::string> _suppressedSaberModClasses;
+  float _lastSaberModSweep = -100.0f;
+  int _saberModSweeps = 0;
   // The game's mirrors turned plain for a map with Game Mirrors off (0.15.18;
   // the surface stays, without the reflection, since 0.15.19).
   struct PlainMirror {

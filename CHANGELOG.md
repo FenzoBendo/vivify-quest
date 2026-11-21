@@ -11,6 +11,21 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.51]
+
+### Changed
+
+- On a Vivify map with its own saber model or trail, other saber mods'
+  sabers (CustomModels, ReeSabers) are switched off for the level, so the
+  map's saber and trail are what is drawn. CustomModels' controller carried
+  the map's model and its trail stood in for the game's, so the map's trail
+  did not show, and in a replay render Aether's sabers did not move as
+  recorded. The map's model now hangs on the game's saber and its trail
+  follows the saber. New setting **Map Sabers Turn Off Saber Mods** (on);
+  the log names each mod object switched off. ReeSabers' source is not
+  public, so its objects are recognised by component names containing
+  "ReeSaber".
+
 ## [0.15.50]
 
 ### Changed
