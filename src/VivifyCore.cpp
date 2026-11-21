@@ -748,6 +748,7 @@ void Runtime::ResetRuntime(std::string_view reason) {
   _blitGuardWatches.clear();
   _slowProbes.clear();
   RestoreForeignSaberLights();
+  RestoreSaberMods();
   RestoreGameMirrors();
   RestoreForcedBloom();
   RestoreVivifyFoveation();

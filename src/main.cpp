@@ -100,6 +100,10 @@ constexpr std::string_view kFoveationConfigKey = "vivifyFoveationLevel";
 // Lets lights another mod puts on the sabers light a Vivify map's objects.
 // Off by default: they are switched off while a Vivify map plays (0.15.9).
 constexpr std::string_view kSaberLightsConfigKey = "saberLightsOnMapObjects";
+// On a Vivify map that brings its own saber model or trail, other saber mods'
+// sabers (CustomModels, ReeSabers) are switched off for the level, so the
+// map's model and trail are what is drawn and follow the saber (0.15.51).
+constexpr std::string_view kTurnOffSaberModsConfigKey = "turnOffSaberModsForMapSabers";
 // Switches off a screen effect that turns a normal picture into one flat
 // colour for three seconds, and logs what went in and out (0.15.7).
 constexpr std::string_view kFlatScreenGuardConfigKey = "flatScreenGuard";
@@ -202,6 +206,7 @@ bool gMapRealtimeShadows = false;
 bool gMapReflectionProbes = true;
 bool gMapSabers = true;
 bool gSaberLights = false;
+bool gTurnOffSaberMods = true;
 bool gFlatScreenGuard = true;
 // The game's own mirrors during a Vivify map (0.15.18); per map only.
 bool gGameMirrors = true;
@@ -1304,6 +1309,8 @@ void RegisterModSettings() {
                [](bool value) { SetBoolConfigValue(kMapSabersConfigKey, value, gMapSabers); });
         toggle(u"Saber Lights On Map Objects", gSaberLights,
                [](bool value) { SetBoolConfigValue(kSaberLightsConfigKey, value, gSaberLights); });
+        toggle(u"Map Sabers Turn Off Saber Mods", gTurnOffSaberMods,
+               [](bool value) { SetBoolConfigValue(kTurnOffSaberModsConfigKey, value, gTurnOffSaberMods); });
         toggle(u"No Vivify Visuals In Multiplayer", GetDisableVisualsInMultiplayer(), [](bool value) {
           SetBoolConfigValue(kDisableVisualsInMultiplayerConfigKey, value, gDisableVisualsInMultiplayer);
         });
@@ -1679,6 +1686,10 @@ bool GetFlatScreenGuard() {
 
 bool GetSaberLightsOnMapObjects() {
   return gSaberLights;
+}
+
+bool GetTurnOffSaberModsForMapSabers() {
+  return gTurnOffSaberMods;
 }
 
 bool GetGeometryEffectsBothEyes() {
@@ -2119,6 +2130,7 @@ void EnsureConfigDefaults() {
   needsWrite |= EnsureBoolConfigValue(kMapReflectionProbesConfigKey, true, gMapReflectionProbes);
   needsWrite |= EnsureBoolConfigValue(kMapSabersConfigKey, true, gMapSabers);
   needsWrite |= EnsureBoolConfigValue(kSaberLightsConfigKey, false, gSaberLights);
+  needsWrite |= EnsureBoolConfigValue(kTurnOffSaberModsConfigKey, true, gTurnOffSaberMods);
   needsWrite |= EnsureBoolConfigValue(kFlatScreenGuardConfigKey, true, gFlatScreenGuard);
   needsWrite |= EnsureBoolConfigValue(kFullReflectionProbesConfigKey, false, gFullReflectionProbes);
   needsWrite |= EnsureBoolConfigValue(kSingleViewMapCamerasConfigKey, true, gSingleViewMapCameras);
