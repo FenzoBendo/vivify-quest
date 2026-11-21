@@ -11,6 +11,22 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.50]
+
+### Changed
+
+- The nightly is built by build.yml, so it carries what a release does:
+  Vivify for Beat Saber 1.40.8 and 1.45.3, full and Lite, and the 1.45.3
+  ports. Before, it had only the 1.40.8 full build.
+
+### Fixed
+
+- The in-game updater (Stable, Nightly, Dev Build, Chosen Version) installs
+  the QMOD for the game version and build it is running. Releases now hold
+  several Vivify QMODs and the 1.45.3 ports, and it took the first non-Lite
+  QMOD, which could be another game version's Vivify or a port. It also
+  refuses a QMOD whose mod.json is for another Beat Saber version.
+
 ## [0.15.49]
 
 ### Fixed

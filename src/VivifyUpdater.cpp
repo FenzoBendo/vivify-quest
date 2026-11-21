@@ -135,20 +135,33 @@ std::optional<std::vector<uint8_t>> GetData(std::string const& url, std::string&
   return std::vector<uint8_t>(response.responseData->begin(), response.responseData->end());
 }
 
-// The asset of a release that matches this build: the Lite QMOD for the Lite
-// build, the full one otherwise.
+// Whether a QMOD file name is this build's (0.15.50). Releases and nightlies
+// now carry Vivify for each game version ("-bs1.45.3" marks the 1.45.3 one;
+// 1.40.8's has no game tag), Lite and full, and the 1.45.3 ports
+// (CustomJSONData, Tracks, Noodle Extensions, Chroma). Taking the first
+// non-Lite QMOD could install another game version's Vivify, or a port.
+#ifdef VIVIFY_GAME_1_45_3
+constexpr std::string_view kGameTag = "-bs1.45.3";
+#else
+constexpr std::string_view kGameTag = "";
+#endif
+bool IsThisBuildsQmod(std::string_view name) {
+  if (!name.starts_with("Vivify") || !name.ends_with(".qmod")) return false;
+  if ((name.find("Lite") != std::string_view::npos) != kLiteBuild) return false;
+  bool const tagged = name.find("-bs") != std::string_view::npos;
+  return kGameTag.empty() ? !tagged : name.find(kGameTag) != std::string_view::npos;
+}
+
+// The asset of a release that matches this build: the same game version, and
+// the Lite QMOD for the Lite build, the full one otherwise.
 std::string PickAsset(rapidjson::Value const& release) {
   if (!release.HasMember("assets") || !release["assets"].IsArray()) return {};
-  std::string fallback;
   for (auto const& asset : release["assets"].GetArray()) {
     auto name = ReadStringView(asset, "name");
     auto url = ReadStringView(asset, "browser_download_url");
-    if (!name || !url || name->size() < 5 || name->substr(name->size() - 5) != ".qmod") continue;
-    bool const lite = name->find("Lite") != std::string_view::npos;
-    if (lite == kLiteBuild) return std::string(*url);
-    if (fallback.empty() && !lite) fallback = std::string(*url);
+    if (name && url && IsThisBuildsQmod(*name)) return std::string(*url);
   }
-  return kLiteBuild ? std::string() : fallback;
+  return {};
 }
 
 std::optional<rapidjson::Document> GetReleases(std::string& error) {
@@ -170,13 +183,23 @@ bool Resolve(Channel channel, std::string const& tag, std::string& url, std::str
     // without a GitHub login; its page links the artifact by name.
     auto page = GetText(std::string("https://nightly.link/") + kRepo + "/workflows/build/main", error);
     if (!page) return false;
-    std::smatch match;
+    // One artifact per game version: "Vivify-v<version>.zip" (1.40.8) and
+    // "Vivify-v<version>-bs1.45.3.zip".
     std::regex const link("https://nightly\\.link/[^\"' <>]+?\\.zip");
-    if (!std::regex_search(*page, match, link)) {
-      error = "no build of main is available";
+    url.clear();
+    for (std::sregex_iterator it(page->begin(), page->end(), link), end; it != end; ++it) {
+      std::string const found = it->str();
+      std::string_view const file = std::string_view(found).substr(found.rfind('/') + 1);
+      bool const tagged = file.find("-bs") != std::string_view::npos;
+      if (kGameTag.empty() ? !tagged : file.find(kGameTag) != std::string_view::npos) {
+        url = found;
+        break;
+      }
+    }
+    if (url.empty()) {
+      error = "no build of main is available for this game version";
       return false;
     }
-    url = match.str();
     label = "the latest build of main";
     return true;
   }
@@ -196,7 +219,8 @@ bool Resolve(Channel channel, std::string const& tag, std::string& url, std::str
     auto name = ReadStringView(release, "name");
     label = name ? std::string(*name) : std::string(*releaseTag);
     if (url.empty()) {
-      error = "'" + label + "' has no " + std::string(kLiteBuild ? "Lite " : "") + "QMOD to install";
+      error = "'" + label + "' has no " + std::string(kLiteBuild ? "Lite " : "") + "QMOD for Beat Saber " +
+              std::string(kGameTag.empty() ? "1.40.8" : kGameTag.substr(3));
       return false;
     }
     return true;
@@ -226,6 +250,13 @@ bool InstallQmod(std::vector<uint8_t> const& qmod, std::string& version, std::st
     return false;
   }
   version = std::string(ReadStringView(mod, "version").value_or("?"));
+  // A QMOD for another Beat Saber version would not load in this one.
+  std::string_view const game = kGameTag.empty() ? std::string_view("1.40.8") : kGameTag.substr(3);
+  // "1.40.8_7379", "1.45.3_30054": the game version, then its build number.
+  if (auto package = ReadStringView(mod, "packageVersion"); package && package->substr(0, package->find('_')) != game) {
+    error = "the download is for Beat Saber " + std::string(*package) + ", not " + std::string(game);
+    return false;
+  }
 
   // Every dependency that is installed as a mod must be at a version the new
   // build accepts; a library the loader does not list as a mod is not checked.
@@ -308,8 +339,7 @@ std::optional<std::vector<uint8_t>> QmodFromArtifact(std::vector<uint8_t> const&
   std::filesystem::path chosen;
   for (auto const& entry : std::filesystem::directory_iterator(unpack, ec)) {
     std::string const name = entry.path().filename().string();
-    if (entry.path().extension() != ".qmod") continue;
-    if ((name.find("Lite") != std::string::npos) == kLiteBuild) chosen = entry.path();
+    if (IsThisBuildsQmod(name)) chosen = entry.path();
   }
   if (chosen.empty()) {
     error = "the build has no matching QMOD";
