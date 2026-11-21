@@ -315,6 +315,18 @@ jobs:
       continue-on-error: true
       working-directory: ports/NoodleExtensions
       run: |
+        # The port's BeatmapCallbacksUpdater hook reads
+        #   if (beatmapOpt && controller != selfController || data != beatmapData)
+        # which also runs when the level's data is not CustomJSONData's, then
+        # sorts a null CustomBeatmapData and crashes at level start. Group the
+        # condition so it only runs on CustomJSONData beatmaps.
+        f=src/Hooks/BeatmapObjectCallBackController.cpp
+        sed -i 's/if (beatmapOpt \&\& controller != selfController || selfController->_beatmapData != beatmapData) {/if (beatmapOpt \&\& (controller != selfController || selfController->_beatmapData != beatmapData)) {/' "$f"
+        if grep -q 'beatmapOpt && (controller != selfController' "$f"; then
+          echo "Patched Noodle's level-start null check"
+        else
+          echo "::warning::Noodle's level-start check was not patched (the port changed)"
+        fi
         qpm ndk resolve -d
         qpm restore
         qpm s build

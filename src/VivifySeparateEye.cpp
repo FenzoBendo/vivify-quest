@@ -437,6 +437,30 @@ UnityEngine::Material* CopyMaterial(UnityEngine::Material* source, int eye) {
 // during a nested authored-camera callback. Resolve those back to their source
 // before selecting the mono donor, then restore the exact prior arrays.
 std::vector<Swap> sceneSwaps;
+// Geometry-shader effects that stalled the game while drawn once per eye
+// (0.15.47). Aether's ending explodes its terrain with a geometry shader;
+// drawn twice per frame the GPU took seconds a frame and Android killed the
+// game. Renderers using these shaders are turned off for the rest of the map.
+std::unordered_set<std::string> suspendedGeometryShaders;
+std::vector<SafePtr<UnityEngine::Renderer>> suspendedGeometryRenderers;
+std::string GeometryShaderOf(UnityEngine::Material* material) {
+  if (!Alive(material)) return {};
+  auto remembered = originals.find(material);
+  std::string name = remembered != originals.end() ? remembered->second.shader : MaterialShaderName(material);
+  return separateEyeShaderNames.contains(name) ? name : std::string();
+}
+// Turns off a captured renderer drawing with a suspended geometry shader.
+bool SuspendIfGeometry(Swap& swap) {
+  if (suspendedGeometryShaders.empty() || !swap.active || !swap.renderer || !Alive(swap.renderer.ptr())) return false;
+  for (auto* material : ArrayW<UnityEngine::Material*>(swap.original.ptr())) {
+    if (!suspendedGeometryShaders.contains(GeometryShaderOf(material))) continue;
+    swap.renderer->set_enabled(false);
+    suspendedGeometryRenderers.emplace_back(swap.renderer.ptr());
+    swap.active = false;
+    return true;
+  }
+  return false;
+}
 std::vector<std::vector<Swap>> freeTextureSwaps;
 bool ShadowsDisabled() {
   // Getters are stripped from the generated managed API. The Unity 2021.3
@@ -828,6 +852,22 @@ void RenderEyeImage(UnityEngine::Camera* camera, UnityEngine::RenderTexture* src
   if (!captureComplete) UnityEngine::Graphics::Blit(src, dest);
 }
 
+std::vector<std::string> SuspendStalledGeometryEffects() {
+  std::vector<std::string> names;
+  if (sceneRoute != SceneRoute::Separate || rendering) return names;
+  for (auto& swap : sceneSwaps) {
+    if (!swap.active || !swap.renderer || !Alive(swap.renderer.ptr())) continue;
+    for (auto* material : ArrayW<UnityEngine::Material*>(swap.original.ptr())) {
+      auto name = GeometryShaderOf(material);
+      if (!name.empty() && suspendedGeometryShaders.insert(name).second) names.push_back(name);
+    }
+  }
+  // Materials are restored between frames; turning the renderers off is what
+  // keeps the next frame from drawing them.
+  for (auto& swap : sceneSwaps) SuspendIfGeometry(swap);
+  return names;
+}
+
 void Reset(bool unloadDonors) {
   if (rendering || blitEye >= 0) return; // the enclosing camera/effect scope owns restoration
   CancelFrame();
@@ -836,6 +876,9 @@ void Reset(bool unloadDonors) {
   UnwindTextureCameras();
   RestoreMaterials(sceneSwaps);
   sceneSwaps.clear(); freeTextureSwaps.clear();
+  for (auto& renderer : suspendedGeometryRenderers)
+    if (renderer && Alive(renderer.ptr())) renderer->set_enabled(true);
+  suspendedGeometryRenderers.clear();
   sceneRenderers.clear(); rendererIndex.clear(); materialList = nullptr;
   sceneProjectors.clear(); projectorIndex.clear();
   captureEye = blitEye = -1; imageEffects = nullptr;
@@ -867,6 +910,7 @@ void Reset(bool unloadDonors) {
     if (preparingGate) SongCore::API::PlayButton::EnablePlayButton(kPlayGate);
     preparingGate = false;
     completeStageInfo = false; separateEyeShaderNames.clear(); tessellationShaderNames.clear();
+    suspendedGeometryShaders.clear();
     activeSceneEyeTessellationNames.clear(); preparedSource.clear(); preparedCache.clear();
     originals.clear();
     sourceShaderAssets.clear();
@@ -1288,8 +1332,8 @@ bool RenderEyes(UnityEngine::Camera* main, UnityEngine::RenderTextureDescriptor 
     native.sceneMaterialsCompatible = true;
     std::vector<std::string> nativeBlockers;
     bool const perspective = !main->get_orthographic(), noShadows = ShadowsDisabled();
-    for (auto const& swap : swaps) {
-      if (!swap.active) continue;
+    for (auto& swap : swaps) {
+      if (!swap.active || SuspendIfGeometry(swap)) continue;
       for (auto* source : ArrayW<UnityEngine::Material*>(swap.original.ptr())) {
         if (!CanUseNativeMaterial(source) && !CanUsePerspectiveEmpty(source, perspective, noShadows)) {
           native.sceneMaterialsCompatible = false;

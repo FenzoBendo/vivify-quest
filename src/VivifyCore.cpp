@@ -223,6 +223,19 @@ void Runtime::Update() {
                          gap, CurrentSongTime(), _preloadedBundlePath);
       }
     }
+    // A stall after the first seconds (shader compiles are over by then)
+    // while geometry-shader effects were drawn once per eye: Aether's ending
+    // went from 0.8 s to 3.3 s a frame and Android killed the game (0.15.47).
+    // Those effects are turned off for the rest of the map instead.
+    if (_lastGameplayFrame != std::chrono::steady_clock::time_point{} && !_pauseMenuActive &&
+        CurrentSongTime() > 10.0f &&
+        std::chrono::duration<double>(frameStart - _lastGameplayFrame).count() >= 0.5) {
+      for (auto const& shader : SeparateEye::SuspendStalledGeometryEffects()) {
+        PaperLogger.warn("Vivify: the game stalled while geometry-shader effect '{}' was drawn for each eye; it is "
+                         "turned off for the rest of this map so the game keeps running",
+                         shader);
+      }
+    }
     _lastGameplayFrame = frameStart;
     // Ten seconds into the song the converted bundle has loaded and drawn;
     // whatever happens after that is not what the crash guard is for.

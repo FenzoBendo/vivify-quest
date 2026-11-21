@@ -11,6 +11,43 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.48]
+
+### Fixed
+
+- Aether's glass rocks no longer ghost while the rift is on screen. The
+  ghosting came from the Separate-Eye Renderer (added after 0.15.13, which
+  did not ghost): the rift's geometry shader put the scene on the per-eye
+  route, and Unity takes a named screen grab ("_GrabTexture1") once a frame,
+  so the second eye's glass refracted the first eye's image. The renderer is
+  now off automatically for any map whose shaders read a named screen grab,
+  unless that map's own "Separate-Eye Renderer" setting is set; its per-map
+  row shows "default (off)" for such maps. Lifelike reads no grab and keeps it.
+
+## [0.15.47]
+
+### Fixed
+
+- Aether no longer gets the game killed at its ending with Geometry-Shader
+  Effects on. Its final terrain explosion is a geometry shader; drawn once per
+  eye by the Separate-Eye Renderer, frames took seconds and Android closed the
+  game. When the game stalls (0.5 s or more, after the first 10 s) while a
+  geometry-shader effect is being drawn per eye, the renderers using that
+  shader are turned off for the rest of the map, and the log names it.
+
+## [0.15.46]
+
+### Fixed
+
+- Beat Saber 1.45.3: Noodle maps (Vivify maps included) no longer crash at
+  level start. The bundled Noodle Extensions port checked a missing
+  CustomJSONData beatmap the wrong way round; the build now patches it.
+
+### Changed
+
+- When a level's beatmap data did not come from CustomJSONData, Vivify now
+  logs which class it is once, instead of only with debug logging.
+
 ## [0.15.45] - 2026-11-20
 
 ### Added

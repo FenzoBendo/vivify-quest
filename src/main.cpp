@@ -551,6 +551,7 @@ constexpr std::string_view kForceBloomConfigKey = "forceBloom";
 
 std::mutex gMapOverridesMutex;
 std::string gMapOverridesFor;  // song folder name the cache below is for
+std::string gSeparateEyeAutoOffMapKey;  // map whose shaders read a screen grab (NoteMapGrabsScreen)
 std::unordered_map<std::string, bool> gMapOverrides;
 
 void LoadMapOverridesLocked(std::string const& mapKey) {
@@ -964,7 +965,11 @@ bool GlobalAudioLink() { return gAudioLink; }
 bool GlobalGameMirrors() { return gGameMirrors; }
 bool GlobalFullReflectionProbes() { return gFullReflectionProbes; }
 bool GlobalForceBloom() { return gForceBloom; }
-bool GlobalSeparateEye() { return !kLiteBuild && gExperimentalSeparateEye; }
+bool GlobalSeparateEye() {
+  if (kLiteBuild || !gExperimentalSeparateEye) return false;
+  std::lock_guard lock(gMapOverridesMutex);
+  return gSeparateEyeAutoOffMapKey.empty() || gSeparateEyeAutoOffMapKey != gMapOverridesFor;
+}
 MapSettingRow const kMapSettingRows[] = {
     {"Screen Effects", kDisableAllBlitsConfigKey, true, GlobalDisableAllBlits},
     {"Game Bloom", kForceBloomConfigKey, false, GlobalForceBloom},
@@ -1621,7 +1626,35 @@ bool GetMultipassRenderingEnabled() {
 
 // Per map too (0.15.45): Aether turns it on for its geometry-shader effects,
 // at several times the frame time; a map can have it off on its own.
-bool GetExperimentalSeparateEye() { return !kLiteBuild && MapBool(kExperimentalSeparateEyeKey, gExperimentalSeparateEye); }
+// Maps whose shaders read a named screen grab (Aether's glass rocks:
+// "_GrabTexture1"). Unity takes a named grab once a frame, so with the eyes
+// drawn one after the other the second eye refracted the first eye's image:
+// a flat ghost inside the glass while the rift's geometry shader kept the
+// scene on the separate route. 0.15.13, before this renderer, had none. The
+// renderer is off for such a map unless the map's own setting says otherwise
+// (0.15.48). The map key lives with the overrides above.
+
+void NoteMapGrabsScreen(std::string const& levelPath) {
+  if (kLiteBuild || levelPath.empty() || !gExperimentalSeparateEye) return;
+  if (GetMapSetting(levelPath, kExperimentalSeparateEyeKey).has_value()) return;
+  std::string const key = MapKeyOf(levelPath);
+  {
+    std::lock_guard lock(gMapOverridesMutex);
+    if (key == gSeparateEyeAutoOffMapKey) return;
+    gSeparateEyeAutoOffMapKey = key;
+  }
+  PaperLogger.info("Vivify: '{}' reads a screen grab; the Separate-Eye Renderer is off for this map (it made the "
+                   "second eye refract the first eye's image). Turn it on in this map's settings to override.",
+                   key);
+  Vivify::SeparateEye::Reset(true);
+  Vivify::ReselectSelectedMap();
+}
+
+bool GetExperimentalSeparateEye() {
+  if (kLiteBuild) return false;
+  if (auto const value = MapOverride(kExperimentalSeparateEyeKey)) return *value;
+  return GlobalSeparateEye();
+}
 bool GetSeparateEyeKeepSceneDepth() { return !kLiteBuild && gSeparateEyeKeepSceneDepth; }
 // Per map too (0.15.24): it swapped Yoi Okashi's grass shader for its
 // tessellated build when turned on for Lifelike's grass.
