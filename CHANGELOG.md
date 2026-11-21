@@ -11,6 +11,19 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.46]
+
+### Fixed
+
+- Beat Saber 1.45.3: Noodle maps (Vivify maps included) no longer crash at
+  level start. The bundled Noodle Extensions port checked a missing
+  CustomJSONData beatmap the wrong way round; the build now patches it.
+
+### Changed
+
+- When a level's beatmap data did not come from CustomJSONData, Vivify now
+  logs which class it is once, instead of only with debug logging.
+
 ## [0.15.45] - 2026-11-20
 
 ### Added

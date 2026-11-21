@@ -46,8 +46,16 @@ std::vector<TrackW> Runtime::ReadTracks(rapidjson::Value const& object, bool v2)
 
 CustomJSONData::CustomBeatmapData* Runtime::GetCustomBeatmapData(GlobalNamespace::BeatmapCallbacksController* callbackController) {
   auto* result = il2cpp_utils::try_cast<CustomJSONData::CustomBeatmapData>(callbackController->_beatmapData).value_or(nullptr);
-  if (result == nullptr && GetVivifyDebugLogging()) {
-    PaperLogger.warn("Vivify GetCustomBeatmapData: _beatmapData is not CustomBeatmapData, Vivify events will be ignored");
+  // Said once per beatmap: the class tells whether CustomJSONData's loader
+  // ran for this level (on 1.45.3 its v4 loader is not ported yet).
+  static void* lastReported = nullptr;
+  void* data = callbackController->_beatmapData;
+  if (result == nullptr && data != nullptr && data != lastReported) {
+    lastReported = data;
+    auto* klass = reinterpret_cast<Il2CppObject*>(data)->klass;
+    PaperLogger.warn("Vivify: this level's beatmap data is {}.{}, not CustomJSONData's CustomBeatmapData, so Vivify "
+                     "events are ignored",
+                     klass && klass->namespaze ? klass->namespaze : "", klass && klass->name ? klass->name : "?");
   }
   return result;
 }
