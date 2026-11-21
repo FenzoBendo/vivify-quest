@@ -44,6 +44,11 @@ bool CanUseNativeMaterial(UnityEngine::Material* source);
 void RenderEyeImage(UnityEngine::Camera* camera, UnityEngine::RenderTexture* src, UnityEngine::RenderTexture* dest);
 // Frame resources are per play session. Donors can survive a song restart.
 void Reset(bool unloadDonors = false);
+// After a stall while the eyes were drawn separately: turns off, for the rest
+// of the map, the renderers drawing with geometry-shader effects that were in
+// that frame. Returns the shader names newly suspended (none when the scene
+// was not on the separate route or had no geometry shaders).
+std::vector<std::string> SuspendStalledGeometryEffects();
 // Render before the main camera culls. Suppress its redundant scene draw only
 // AFTER both complete eye images exist. First frame learns the real descriptor.
 void PrepareFrame(UnityEngine::Camera* main, CameraApplier* effects);

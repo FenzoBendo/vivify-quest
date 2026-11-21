@@ -11,6 +11,17 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.47]
+
+### Fixed
+
+- Aether no longer gets the game killed at its ending with Geometry-Shader
+  Effects on. Its final terrain explosion is a geometry shader; drawn once per
+  eye by the Separate-Eye Renderer, frames took seconds and Android closed the
+  game. When the game stalls (0.5 s or more, after the first 10 s) while a
+  geometry-shader effect is being drawn per eye, the renderers using that
+  shader are turned off for the rest of the map, and the log names it.
+
 ## [0.15.46]
 
 ### Fixed
