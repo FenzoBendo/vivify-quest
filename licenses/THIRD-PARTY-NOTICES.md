@@ -1,56 +1,37 @@
-# Third-party license inventory
+# License copies and third-party notices
 
-This directory records licenses and notices for third-party code, headers, libraries,
-assets, generated code, tools, and copied/ported implementation used by Vivify Quest.
-Entries marked **VERIFY** require checking the exact restored source revision/license
-before release. Do not treat this inventory as a legal conclusion.
+The text files in this directory are verbatim copies of license or notice files from the project and its checked-out dependencies. Original wording, attribution, copyright notices, and license terms are preserved.
 
-## Dependency manifest (scripts/dependencies.json and qpm.json)
+## Included copies
 
-| Component | Source / upstream | License status |
+| Component | Copied file | Original source path |
 |---|---|---|
-| beatsaber-hook | https://github.com/QuestPackageManager/beatsaber-hook | VERIFY pinned source/release |
-| bs-cordl | https://github.com/QuestPackageManager/bs-cordl | VERIFY pinned source |
-| BSML / Quest-BSML | https://github.com/bsq-ports/Quest-BSML | VERIFY pinned source/release |
-| conditional-dependencies | QPM package (fork/source resolved by restore scripts) | VERIFY resolved package |
-| config-utils | https://github.com/darknight1050/config-utils | VERIFY pinned source |
-| cpp-semver | QPM package (fork/source resolved by restore scripts) | VERIFY resolved package |
-| CustomJSONData | https://github.com/bsq-ports/CustomJSONData | VERIFY pinned source/release |
-| Il2CppQuestTypePatching / custom-types | https://github.com/QuestPackageManager/Il2CppQuestTypePatching | VERIFY pinned source/release |
-| Flamingo | https://github.com/sc2ad/Flamingo | VERIFY pinned source |
-| fmt | QPM package (fork/source resolved by restore scripts) | VERIFY pinned source/version |
-| libil2cpp | Unity IL2CPP headers/runtime source | VERIFY Unity license and distribution terms |
-| MetaCore | https://github.com/Metalit/MetaCore | VERIFY pinned source/release |
-| paper2_scotland2 / paperlog | https://github.com/Fernthedev/paperlog | VERIFY pinned source |
-| utfCpp (paperlog submodule) | https://github.com/nemtrif/utfcpp | VERIFY pinned submodule license |
-| RapidjsonMacros | https://github.com/Metalit/RapidjsonMacros | VERIFY pinned source |
-| scotland2 | https://github.com/sc2ad/scotland2 | VERIFY pinned source/release |
-| Sombrero | https://github.com/Fernthedev/Sombrero-quest | VERIFY pinned source |
-| SongCore | https://github.com/raineaeternal/Quest-SongCore | VERIFY pinned source/release |
-| tinyxml2 | https://github.com/MillzyDev/NDK-tinyxml2 | VERIFY pinned source/release |
-| Tracks | https://github.com/bsq-ports/Tracks | VERIFY pinned source/release |
-| WebUtils | https://github.com/bsq-ports/WebUtils | VERIFY pinned source/release |
-| RapidJSON (beatsaber-hook submodule) | https://github.com/Tencent/rapidjson | VERIFY pinned commit |
-| utfCpp (paperlog submodule) | https://github.com/nemtrif/utfcpp | VERIFY pinned commit |
+| Vivify Quest | `VivifyQuest-LICENSE.txt` | `LICENSE` |
+| Converter | `converter-LICENSE.txt` | `converter/LICENSE` |
+| Depth assets/shader | `depth-assets-LICENSE.txt` | `assets/depth/LICENSE` |
+| Beat Saber Hook | `beatsaber-hook-LICENSE.txt` | `extern/includes/beatsaber-hook/LICENSE` |
+| RapidJSON | `RapidJSON-license.txt` | `extern/includes/beatsaber-hook/shared/rapidjson/license.txt` |
+| RapidJSON Natvis | `rapidjson-natvis-LICENSE.txt` | `extern/includes/beatsaber-hook/shared/rapidjson/contrib/natvis/LICENSE` |
+| config-utils | `config-utils-GPL-3.0.txt` | `extern/includes/config-utils/LICENSE` |
+| cpp-semver | `cpp-semver-LICENSE.txt` | `extern/includes/cpp-semver/LICENSE` |
+| CustomJSONData | `CustomJSONData-LICENSE.txt` | `extern/includes/custom-json-data/LICENSE` |
+| CustomTypes / Il2CppQuestTypePatching | `Il2CppQuestTypePatching-LICENSE.txt` | `extern/includes/custom-types/LICENSE` |
+| fmt | `fmt-MIT.txt` | `extern/includes/fmt/LICENSE` |
+| libatomic_ops (BDWGC) | `libatomic_ops-COPYING.txt` | `extern/includes/libil2cpp/external/bdwgc/libatomic_ops/COPYING` |
+| utf8cpp | `utfcpp-Boost-1.0.txt` | `extern/includes/paper2_scotland2/shared/utfcpp/LICENSE` |
+| Scotland2 | `scotland2-LICENSE.txt` | `extern/includes/scotland2/LICENSE` |
+| Sombrero | `Sombrero-LGPL-2.1.txt` | `extern/includes/sombrero/LICENSE` |
+| SongCore | `SongCore-LICENSE.txt` | `extern/includes/songcore/LICENSE` |
+| tinyxml2 | `tinyxml2-Zlib.txt` | `extern/includes/tinyxml2/LICENSE` |
+| Flamingo | `Flamingo-LICENSE.txt` | Upstream `sc2ad/Flamingo`, pinned ref `version/v1_1_2` |
+| BeatLeader replay-format code | `beatleader-qmod-MIT.txt` | Original BeatLeader Quest mod MIT notice |
 
-## Other source, tools, and embedded material
+## Dependencies without a standalone license file found
 
-| Component | Location / upstream | License status |
-|---|---|---|
-| BeatLeader Quest BSOR replay model, encoder and recorder hooks | See `beatleader-qmod-MIT.txt`; https://github.com/BeatLeader/beatleader-qmod | MIT; notice file included |
-| bcdec texture decoder | `third_party/bcdec.h` | VERIFY and include upstream notice |
-| UnityPy type-tree/common-string reference material | converter fixtures and tools | VERIFY package/repository license and restrictions |
-| DepthBlit shader/resource adapted from PC | `assets/depth/` and `tools/separate-eye/` | VERIFY original source license and preserve attribution |
-| Unity / IL2CPP generated headers and metadata | `extern/includes/libil2cpp/` | VERIFY Unity terms and redistribution permissions |
-| Python scripts and bundled tool dependencies | `scripts/`, `tools/`, workflows | Inventory third-party Python packages separately; project-authored scripts are covered by root license unless stated |
-| Android NDK / LLVM / build tools | CI/build environment | Not redistributed as project source unless explicitly vendored; review packaging |
-| External QMODs / shared libraries included in releases | QPM dependency manifest and packaging scripts | Verify every bundled binary's corresponding source license and redistribution terms |
+The following packages are present in the dependency manifest or bundled libraries, but no standalone license file was found at the checked source path/ref during this pass: bs-cordl, Quest-BSML, conditional-dependencies, MetaCore, paperlog, RapidJSONMacros, Tracks, WebUtils, and the Unity IL2CPP portions outside the included libatomic_ops component.
 
-## Audit policy
+This does **not** mean those components are public domain or license-free. Their licensing and redistribution terms still need to be verified from upstream package metadata, source headers, or the applicable Unity/third-party terms before redistribution. Do not replace a missing upstream license with a guessed license.
 
-- Keep a copy of the **full license text** for every redistributed third-party component in this folder, using upstream's license filename where practical.
-- Keep copyright, attribution, patent, trademark, notice, and source-offer requirements intact.
-- Include dependencies used only as headers, submodules, generated/ported snippets, assets, shaders, tests, or tools—not only runtime libraries.
-- Resolve **VERIFY** entries against the exact commit/package revision actually restored by CI. Do not guess license identifiers from project names.
-- Record the component, version/ref/hash, SPDX identifier if confirmed, upstream URL, license filename, and whether source or binary is redistributed.
-- This inventory is a starting point; unresolved entries mean the license bundle is not yet complete.
+## Maintenance
+
+When dependencies change, update these copies from the exact source revision restored by CI. Keep the license text unmodified and add every license/notice for source, headers, submodules, generated or ported code, assets, shaders, and bundled tools. The component/version/ref and whether source or binaries are redistributed should be tracked alongside future additions.
