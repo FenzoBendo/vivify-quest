@@ -11,6 +11,24 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.53]
+
+Not tried on a headset.
+
+### Fixed
+
+- **End Times: picture in the right eye only and out of place, left eye grey
+  and spreading.** The map lays a desktop HUD over the screen with
+  `Aeroluna/OverlayUITex`. In a headset that effect's two-eye program passes
+  the picture through unchanged, on PC VR as well; the HUD overlay is only
+  for the flat desktop view. Since 0.15.10 Vivify ran the effect's one-eye
+  (desktop) program in each eye instead. That put the desktop HUD across the
+  headset view and broke the left eye. An effect whose two-eye program leaves
+  a texture out now runs as a two-eye effect, as on PC VR. This also applies
+  to 42-flux's `PostProcessing/OverlayTexture`. Fall Away's HUD text is still
+  shown directly, as since 0.15.16. Only effects with no two-eye program at
+  all still run once per eye.
+
 ## [0.15.52]
 
 ### Fixed
