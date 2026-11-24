@@ -1,5 +1,6 @@
 #include "VivifyRuntimeInternal.hpp"
 #include "VivifySeparateEye.hpp"
+#include "VivifyThermal.hpp"
 #include "VivifyRecovery.hpp"
 #include "VivifyLogUpload.hpp"
 #include "GlobalNamespace/StandardLevelDetailView.hpp"
@@ -206,6 +207,7 @@ void Runtime::Update() {
       ReportGameplayFrame(UnityEngine::Time::get_unscaledDeltaTime());
     }
     if (!_pauseMenuActive) ReportSeparateEyeFrame(UnityEngine::Time::get_unscaledDeltaTime());
+    if (!_pauseMenuActive) Thermal::Sample();
     // Crash recovery's sign of life, every 5 s of play (0.15.2).
     if (frameStart - _lastRecoveryHeartbeat > std::chrono::seconds(5)) {
       _lastRecoveryHeartbeat = frameStart;

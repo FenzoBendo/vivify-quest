@@ -1154,11 +1154,25 @@ bool Runtime::NeedsPerEyeBlit(UnityEngine::Material* material, UnityEngine::Rend
   auto* shader = material->get_shader().unsafePtr();
   if (!IsAlive(shader)) return false;
   std::string const name = ShaderNameForLog(shader);
-  bool const dropsTexture = _stereoDropsTextureShaders.contains(name);
-  if (!_singleViewOnlyNativeShaders.contains(name) && !dropsTexture) return false;
+  // A shader whose two-eye program leaves a texture out (0.15.53): that is
+  // the author's headset path, the same one PC VR runs. Aeroluna's desktop
+  // overlays (End Times, Fall Away, 42-flux) pass the picture through in a
+  // headset and lay the desktop HUD over it only on a flat screen. Running
+  // the one-eye program per eye put that desktop HUD across both eyes, out
+  // of place, and greyed End Times' left eye. Only shaders with no two-eye
+  // program at all still run once per eye.
+  if (!_singleViewOnlyNativeShaders.contains(name)) {
+    if (_stereoDropsTextureShaders.contains(name) && _perEyeBlitLogged.insert(name).second) {
+      PaperLogger.info("Vivify Blit: '{}' leaves a texture out of its two-eye program; that is its headset "
+                       "path (as on PC VR), so it runs as a two-eye effect",
+                       name);
+    }
+    return false;
+  }
   if (_perEyeBlitLogged.insert(name).second) {
-    PaperLogger.info("Vivify Blit: '{}' {} in this map's Quest bundle; running its one-eye program once per eye",
-                     name, dropsTexture ? "leaves a texture out of its two-eye program" : "has no two-eye program");
+    PaperLogger.info("Vivify Blit: '{}' has no two-eye program in this map's Quest bundle; running its one-eye "
+                     "program once per eye",
+                     name);
   }
   return true;
 }

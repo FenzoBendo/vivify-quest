@@ -11,6 +11,55 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.53]
+
+Not tried on a headset.
+
+### Fixed
+
+- **End Times: picture in the right eye only and out of place, left eye grey
+  and spreading.** The map lays a desktop HUD over the screen with
+  `Aeroluna/OverlayUITex`. In a headset that effect's two-eye program passes
+  the picture through unchanged, on PC VR as well; the HUD overlay is only
+  for the flat desktop view. Since 0.15.10 Vivify ran the effect's one-eye
+  (desktop) program in each eye instead. That put the desktop HUD across the
+  headset view and broke the left eye. An effect whose two-eye program leaves
+  a texture out now runs as a two-eye effect, as on PC VR. This also applies
+  to 42-flux's `PostProcessing/OverlayTexture`. Fall Away's HUD text is still
+  shown directly, as since 0.15.16. Only effects with no two-eye program at
+  all still run once per eye.
+
+## [0.15.52]
+
+### Fixed
+
+- Notes vanishing and coming back, invisible sabers, and missing map trails
+  with CustomModels or ReeSabers installed (0.15.51). "Map Sabers Turn Off
+  Saber Mods" switched off every object carrying any of those mods'
+  components, and they put helpers on the game's own objects: CustomModels'
+  note visuals on every note and arrow, ReeSabers' interop component on the
+  game's saber model (which carries the map's saber), CustomModels' colour
+  helper on trail renderers (the map trail's included), and even ReeSabers'
+  input, framerate and menu objects. Now only an object whose every script is
+  the mod's own and whose class is a saber or trail is switched off
+  (CustomModels' saber and trail, ReeSabers' saber, blur saber and trail).
+- ReeSabers' trails stayed on with "Map Sabers Turn Off Saber Mods": its
+  blades and trails draw with its own "Ree/" shaders, and those renderers are
+  now switched off for the level.
+- Beat Saber 1.45.3: the QMOD did not list MetaCoreBS or flamingo, which
+  Vivify loads; mod managers did not install them and Vivify did not load.
+- Dependency versions are now those Vivify is built against (MetaCore 1.6.3,
+  Tracks 2.5.4, paperlog 4.7.0), so a mod manager updates an older copy
+  instead of keeping one Vivify cannot load with.
+
+### Added
+
+- Heat warning: while a Vivify map plays, the GPU temperature (where Android
+  lets the game read it) and Android's thermal status are checked. After two
+  minutes hot in total (GPU 72 C or more, or the system throttling), the next
+  cleared level's results screen asks to let the Quest cool when convenient,
+  once until the game is restarted.
+
 ## [0.15.51]
 
 ### Changed
