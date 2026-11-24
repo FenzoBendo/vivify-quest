@@ -133,6 +133,15 @@ def apply(target, resolved, local=None):
     mod_path = ROOT / "mod.json"
     mod = json.loads(mod_path.read_text())
     mod["packageVersion"] = target["gameVersion"]
+    # Packages this target adds that install a library of their own (0.15.52):
+    # the 1.45.3 build loads libmetacore-bs.so and libflamingo.so, and without
+    # them in mod.json no mod manager installed them; Vivify did not load.
+    listed = {dep["id"] for dep in mod.get("dependencies", [])}
+    not_installed = {"bs-cordl", "scotland2"} | {
+        package for package, data in target.get("qpmDependencyData", {}).items() if data.get("headersOnly")}
+    for package in target["qpmDependencies"]:
+        if package not in listed and package not in not_installed:
+            mod.setdefault("dependencies", []).append({"id": package, "version": target["qpmDependencies"][package]})
     for dep in mod.get("dependencies", []):
         package = dep["id"]
         if package not in target["qpmDependencies"]:

@@ -1,3 +1,4 @@
+#include "VivifyThermal.hpp"
 #include "VivifyRuntimeInternal.hpp"
 #include <set>
 #include "VivifyComponents.hpp"
@@ -413,6 +414,7 @@ namespace Vivify {
 void LateLoad() {
   Runtime::Instance().LateLoad();
   INSTALL_HOOK(PaperLogger, SaberModelController_Init);
+  Thermal::InstallHooks();
 #ifdef VIVIFY_GAME_1_45_3
   INSTALL_HOOK(PaperLogger, MainEffectRendererFeature_AddRenderPasses);
   INSTALL_HOOK(PaperLogger, MainEffectPostRenderPass_ExecutePyramidBloomPass);

@@ -507,6 +507,7 @@ private:
   int _foveationBefore = 0;
   std::vector<UnityEngine::Light*> _disabledSaberLights;
   std::vector<UnityEngine::GameObject*> _suppressedSaberModObjects;
+  std::vector<UnityEngine::Renderer*> _suppressedSaberModRenderers;
   std::set<std::string> _suppressedSaberModClasses;
   float _lastSaberModSweep = -100.0f;
   int _saberModSweeps = 0;
