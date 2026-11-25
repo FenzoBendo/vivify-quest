@@ -22,6 +22,10 @@
   "qpmDependencyData": {
     "sombrero": {
       "headersOnly": true
+    },
+    "flamingo": {
+      "private": false,
+      "extraFiles": []
     }
   },
   "removedQpmDependencies": [
