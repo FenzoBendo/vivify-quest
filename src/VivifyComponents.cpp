@@ -1,4 +1,5 @@
 #include "VivifyRuntimeInternal.hpp"
+#include "VivifyMirrorProbe.hpp"
 #include "VivifySeparateEye.hpp"
 #include "VivifyComponents.hpp"
 #include "VivifyAudioLink.hpp"
@@ -621,6 +622,7 @@ void CameraApplier::OnRenderImage(UnityEngine::RenderTexture* src, UnityEngine::
   // that throws now costs this frame its effects instead (0.15.44).
   try {
     auto& runtime = Runtime::Instance();
+    if (cameraName == "_Main" && runtime.GetCurrentBeatmapData() != nullptr) MirrorProbe::Run(src);
     if (cameraName == "_Main" && GetExperimentalSeparateEye()) {
       auto go = get_gameObject();
       auto* camera = IsManagedAlive(go.unsafePtr()) ? go->GetComponent<UnityEngine::Camera*>() : nullptr;

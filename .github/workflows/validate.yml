@@ -173,6 +173,12 @@ jobs:
             tools/separate-eye/policy_test.cpp -o /tmp/eye-policy-test
         /tmp/eye-policy-test
 
+    - name: Check the game-mirror layout readings
+      run: |
+        g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -I include \
+            tools/mirror-layout/layout_test.cpp -o /tmp/mirror-layout-test
+        /tmp/mirror-layout-test
+
     - name: Check actual renderer material refresh methods
       run: CXX=g++ python3 tools/separate-eye/material_refresh_test.py
 
