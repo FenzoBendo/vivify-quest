@@ -11,6 +11,38 @@ conversion cache version, and cached conversions are redone automatically.
 
 ## [Unreleased]
 
+## [0.15.54]
+
+Not tried on a headset.
+
+### Fixed
+
+- **The game's mirrors in Vivify maps (Luminescent's lake, Lifelike's
+  runway and water).** These reflections are the game's own floor mirror.
+  Luminescent stretches it to 10000 x 10000 under its water at beat 265.
+  The Quest game never uses its mirrors itself; they only draw because
+  GraphicsTweaks turns them on. The headset build of the mirror shader may
+  read the reflection texture differently from how the game draws it: upside
+  down, without picking each eye's half, with the eyes swapped, or one eye
+  above the other. On your screenshots, the reflection only roughly lines up
+  when looking straight ahead and drifts and tilts as the head moves, which
+  is what an upside-down read looks like.
+  - The first time a game mirror draws, Vivify now tests it once per launch
+    of the game. It draws the mirror's own material over a four-colour test
+    image, in both its two-eye and one-eye forms, and reads back which corner
+    each quarter of each eye shows.
+  - The game's mirror then draws its reflection the way the test measured:
+    - turned over if the shader reads it upside down;
+    - into the other eye's half if the eyes are swapped;
+    - as one reflection from between the eyes across the whole texture if
+      every eye reads the full width;
+    - stacked if the eyes are read one above the other.
+  - Where the test finds the game's layout right, nothing changes.
+  - The log line "Vivify mirror test" gives the reading and what was chosen.
+    If the reading matches none of these layouts, mirrors are drawn as before
+    and that line shows the raw colours.
+  - Beat Saber 1.45.3 draws mirrors with URP; there this does not run.
+
 ## [0.15.53]
 
 Not tried on a headset.

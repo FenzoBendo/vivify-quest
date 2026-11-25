@@ -6,6 +6,8 @@
 #include "VivifySeparateEyePolicy.hpp"
 #include "VivifyCameraBindings.hpp"
 #include "GlobalNamespace/MirrorRendererSO.hpp"
+#include "VivifyMirrorProbe.hpp"
+#include <cstring>
 #include "GlobalNamespace/UserInfo.hpp"
 #ifdef VIVIFY_GAME_1_45_3
 #include "GlobalNamespace/MainEffectPostRenderPass.hpp"
@@ -25,6 +27,8 @@ using namespace std::string_view_literals;
 
 namespace {
 thread_local SeparateEye::MirrorRenderStack mirrorRenders;
+// Reflections the game's mirror drew (RenderMirror calls that went through).
+thread_local int mirrorDraws = 0;
 struct MirrorRenderScope {
   MirrorRenderScope(GlobalNamespace::MirrorRendererSO* source, GlobalNamespace::MirrorRendererSO* target) {
     mirrorRenders.Push(reinterpret_cast<uintptr_t>(source), reinterpret_cast<uintptr_t>(target));
@@ -203,7 +207,10 @@ MAKE_HOOK_MATCH(AlwaysVisibleQuad_OnEnable, &GlobalNamespace::AlwaysVisibleQuad:
 #ifndef VIVIFY_GAME_1_45_3
 MAKE_HOOK_MATCH(ImageEffectController_OnRenderImage, &GlobalNamespace::ImageEffectController::OnRenderImage, void, GlobalNamespace::ImageEffectController* self, UnityEngine::RenderTexture* src, UnityEngine::RenderTexture* dest) {
   bool bypass = false;
-  VivifyPart("ImageEffectController.OnRenderImage", [&] { bypass = Runtime::Instance().ShouldBypassImageEffect(self); });
+  VivifyPart("ImageEffectController.OnRenderImage", [&] {
+    if (Runtime::Instance().GetCurrentBeatmapData() != nullptr) MirrorProbe::Run(src);
+    bypass = Runtime::Instance().ShouldBypassImageEffect(self);
+  });
   if (bypass) {
     UnityEngine::Graphics::Blit(static_cast<UnityEngine::Texture*>(src), dest);
     return;
@@ -227,8 +234,20 @@ MAKE_HOOK_MATCH(MirrorRendererSO_RenderMirrorTexture, &GlobalNamespace::MirrorRe
     target = candidate;
   });
   MirrorRenderScope const scope(self, target);
+  int const drawsBefore = mirrorDraws;
   auto result = MirrorRendererSO_RenderMirrorTexture(target, position, normal);
   if (!bindings.Restore()) SeparateEye::RejectCameraBindings();
+  // Freshly drawn (not the frame's cached copy) and measured as read upside
+  // down by the mirror's shader: turn it over (0.15.54).
+  VivifyPart("MirrorRendererSO.RenderMirrorTexture", [&] {
+    if (mirrorDraws == drawsBefore || Runtime::Instance().GetCurrentBeatmapData() == nullptr) return;
+    auto* camera = UnityEngine::Camera::get_current().unsafePtr();
+    bool const stereo = IsManagedAlive(camera) && camera->get_stereoEnabled();
+    auto const* stereoRemedy = MirrorProbe::Stereo();
+    auto const* monoRemedy = MirrorProbe::Mono();
+    bool const flip = stereo ? (stereoRemedy && stereoRemedy->flipV) : (monoRemedy && monoRemedy->flipV);
+    if (flip) MirrorProbe::FlipVertically(result.unsafePtr());
+  });
   return result;
 }
 // The game's mirror draws its reflection once per eye, into the left and
@@ -242,11 +261,13 @@ MAKE_HOOK_MATCH(MirrorRendererSO_RenderMirrorTexture, &GlobalNamespace::MirrorRe
 // logs how far apart the two were.
 namespace {
 void const* mirrorPoseLevel = nullptr;
+void const* mirrorLayoutLevel = nullptr;
 }
 MAKE_HOOK_MATCH(MirrorRendererSO_RenderMirror, &GlobalNamespace::MirrorRendererSO::RenderMirror,
                 void, GlobalNamespace::MirrorRendererSO* self, UnityEngine::Vector3 camPosition,
                 UnityEngine::Quaternion camRotation, UnityEngine::Matrix4x4 camProjectionMatrix,
                 UnityEngine::Rect screenRect, UnityEngine::Vector3 planePosition, UnityEngine::Vector3 planeNormal) {
+  bool skip = false;
   VivifyPart("MirrorRendererSO.RenderMirror", [&] {
     auto& runtime = Runtime::Instance();
     if (runtime.GetCurrentBeatmapData() == nullptr) return;
@@ -263,16 +284,58 @@ MAKE_HOOK_MATCH(MirrorRendererSO_RenderMirror, &GlobalNamespace::MirrorRendererS
       eye = x >= self->____stereoTextureWidth * 0.25f ? 1 : 0;
     }
     if (!half) return;
-    auto const which = UnityEngine::Camera_StereoscopicEye(eye);
-    auto const view = camera->GetStereoViewMatrix(which);
-    auto inverse = UnityEngine::Matrix4x4::Inverse(view);
-    auto const position4 = inverse.GetColumn(3);
-    auto const back = inverse.GetColumn(2);
-    auto const up = inverse.GetColumn(1);
-    UnityEngine::Vector3 const position(position4.x, position4.y, position4.z);
-    auto const rotation = UnityEngine::Quaternion::LookRotation(UnityEngine::Vector3(-back.x, -back.y, -back.z),
-                                                                UnityEngine::Vector3(up.x, up.y, up.z));
+    struct Pose {
+      UnityEngine::Vector3 position;
+      UnityEngine::Quaternion rotation;
+      UnityEngine::Matrix4x4 projection;
+    };
+    auto poseOf = [&](int which) {
+      auto const stereoEye = UnityEngine::Camera_StereoscopicEye(which);
+      auto inverse = UnityEngine::Matrix4x4::Inverse(camera->GetStereoViewMatrix(stereoEye));
+      auto const position4 = inverse.GetColumn(3);
+      auto const back = inverse.GetColumn(2);
+      auto const up = inverse.GetColumn(1);
+      return Pose{UnityEngine::Vector3(position4.x, position4.y, position4.z),
+                  UnityEngine::Quaternion::LookRotation(UnityEngine::Vector3(-back.x, -back.y, -back.z),
+                                                        UnityEngine::Vector3(up.x, up.y, up.z)),
+                  camera->GetStereoProjectionMatrix(stereoEye)};
+    };
+    // How the mirror's shader reads the reflection on this headset, measured
+    // once by drawing it over a test texture (0.15.54, VivifyMirrorProbe).
+    // The game's layout (each eye its own half) is kept where it is right.
+    auto const* remedy = MirrorProbe::Stereo();
+    auto const mode = remedy ? remedy->mode : MirrorLayout::StereoMode::AsGame;
+    Pose pose = poseOf(mode == MirrorLayout::StereoMode::Swapped ? 1 - eye : eye);
+    if (mode == MirrorLayout::StereoMode::FullWidth) {
+      // Both eyes read the whole texture: one reflection from between the
+      // eyes fills it, drawn with the left eye's call; the right eye's goes.
+      if (eye == 1) {
+        skip = true;
+        return;
+      }
+      Pose const other = poseOf(1);
+      pose.position = UnityEngine::Vector3((pose.position.x + other.position.x) * 0.5f,
+                                           (pose.position.y + other.position.y) * 0.5f,
+                                           (pose.position.z + other.position.z) * 0.5f);
+      static_assert(sizeof(UnityEngine::Matrix4x4) == sizeof(float) * 16);
+      float a[16], b[16];
+      std::memcpy(a, &pose.projection, sizeof(a));
+      std::memcpy(b, &other.projection, sizeof(b));
+      for (int i = 0; i < 16; i++) a[i] = (a[i] + b[i]) * 0.5f;
+      std::memcpy(&pose.projection, a, sizeof(a));
+      screenRect = UnityEngine::Rect(0.0f, screenRect.get_y(), width * 2.0f, screenRect.get_height());
+    } else if (mode == MirrorLayout::StereoMode::OverUnder) {
+      float const height = screenRect.get_height() * 0.5f;
+      screenRect = UnityEngine::Rect(0.0f, screenRect.get_y() + remedy->row[eye] * height, width * 2.0f, height);
+    }
+    auto const& position = pose.position;
+    auto const& rotation = pose.rotation;
     void const* level = runtime.GetCurrentBeatmapData();
+    if (remedy && level != mirrorLayoutLevel && eye == 0) {
+      mirrorLayoutLevel = level;
+      PaperLogger.info("Vivify mirror: drawing the reflection as this headset's mirror shader reads it: {}{}",
+                       MirrorLayout::ModeName(mode), remedy->flipV ? ", turned over" : "");
+    }
     if (level != mirrorPoseLevel && eye == 1) {
       mirrorPoseLevel = level;
       float const dx = camPosition.x - position.x, dy = camPosition.y - position.y, dz = camPosition.z - position.z;
@@ -283,8 +346,11 @@ MAKE_HOOK_MATCH(MirrorRendererSO_RenderMirror, &GlobalNamespace::MirrorRendererS
     }
     camPosition = position;
     camRotation = rotation;
-    camProjectionMatrix = camera->GetStereoProjectionMatrix(which);
+    camProjectionMatrix = pose.projection;
   });
+  if (skip) return;
+  mirrorDraws++;
+  MirrorProbe::NoteMirrorDrawn();
   MirrorRendererSO_RenderMirror(self, camPosition, camRotation, camProjectionMatrix, screenRect, planePosition,
                                 planeNormal);
 }

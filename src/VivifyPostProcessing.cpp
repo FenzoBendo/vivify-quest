@@ -1,4 +1,5 @@
 #include "VivifyRuntimeInternal.hpp"
+#include "VivifyMirrorProbe.hpp"
 #include "VivifyRecovery.hpp"
 #ifdef VIVIFY_GAME_1_45_3
 #include "UnityEngine/Rendering/RenderTextureSubElement.hpp"
@@ -2176,7 +2177,8 @@ void Runtime::RefreshCameraApplier(UnityEngine::GameObject* mainCamGO, bool allo
   bool const needsBlit = !GetDisableAllBlits() &&
                          (!_preEffects.empty() || !_postEffects.empty() || HasMidRenderEffects() ||
                           !_secondaryCameras.empty());
-  bool const needsCamera = needsBlit || GetExperimentalSeparateEye();
+  // The one-time mirror test (0.15.54) runs in this camera's effect pass.
+  bool const needsCamera = needsBlit || GetExperimentalSeparateEye() || MirrorProbe::Wanted();
   if (_cameraApplier->get_enabled() != needsCamera) _cameraApplier->set_enabled(needsCamera);
 }
 
