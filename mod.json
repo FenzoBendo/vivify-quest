@@ -26,9 +26,9 @@
       "downloadIfMissing": "https://github.com/bsq-ports/CustomJSONData/releases/download/v0.24.5/custom-json-data.qmod"
     },
     {
-      "version": "^0.2.0",
+      "version": "^0.1.13",
       "id": "GraphicsTweaks",
-      "downloadIfMissing": "https://github.com/FrozenAlex/GraphicsTweaks/releases/download/v0.2.0/GraphicsTweaks.qmod"
+      "downloadIfMissing": "https://github.com/FrozenAlex/GraphicsTweaks/releases/download/v0.1.13/GraphicsTweaks.qmod"
     },
     {
       "version": "^2.5.4",
